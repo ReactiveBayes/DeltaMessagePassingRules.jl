@@ -39,5 +39,7 @@ makedocs(
 deploydocs(
     repo = "github.com/ReactiveBayes/DeltaMessagePassingRules.jl.git",
     devbranch = "main",
-    push_preview = true,
+    # A preview for every pull request but CompatHelper's, whose documentation nobody reviews;
+    # `DocPreviewCleanup.yml` deletes it when the pull request closes.
+    push_preview = !startswith(get(ENV, "GITHUB_HEAD_REF", ""), "compathelper/"),
 )
