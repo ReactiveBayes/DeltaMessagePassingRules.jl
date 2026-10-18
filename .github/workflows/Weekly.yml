@@ -1,0 +1,30 @@
+name: Weekly
+
+# Once a week, the suite on the latest Julia with the latest release of every dependency, which
+# no Manifest pins: a package that sees no commit still learns when a dependency breaks it.
+on:
+  schedule:
+    - cron: '0 8 * * 1' # Mondays, 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Julia 1 - ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: false
+        env:
+          TEST_ALL: 'true'
+          JULIA_FASTCHOLESKY_THROW_ERROR_NON_SYMMETRIC: '1'
