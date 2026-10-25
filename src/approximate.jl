@@ -50,8 +50,11 @@ end
 
 function gaussian_scratch(method, f::F, distributions::Tuple) where {F}
     μs, Σs = input_moments(distributions)
-    ws = MessagePassingRulesApproximations.workspace(method, f, μs, Σs)
     y = f(μs...)
+    # One scalar input and a scalar output: the allocating forms allocate nothing already, their
+    # few points on the stack, so the scratch holds nothing.
+    (y isa Real && length(μs) == 1 && first(μs) isa Real) && return GaussianScratch(nothing, nothing, nothing, nothing)
+    ws = MessagePassingRulesApproximations.workspace(method, f, μs, Σs)
     d_in = sum(length, μs)
     T = float(promote_type(eltype(y), map(eltype, μs)..., map(eltype, Σs)...))
     if y isa Real
@@ -63,19 +66,32 @@ function gaussian_scratch(method, f::F, distributions::Tuple) where {F}
     end
 end
 
-# `(μ, Σ, C)` into the scratch, in place; the arrays are the scratch's.
-scratch_statistics!(s::GaussianScratch{W, Nothing, Nothing, Nothing}, method, f, μs, Σs) where {W} =
-    MessagePassingRulesApproximations.forward_statistics!(s.workspace, method, f, μs, Σs)
-scratch_statistics!(s::GaussianScratch{W, Nothing, Nothing}, method, f, μs, Σs) where {W} =
-    MessagePassingRulesApproximations.forward_statistics!(s.C, s.workspace, method, f, μs, Σs)
-scratch_statistics!(s::GaussianScratch, method, f, μs, Σs) =
-    MessagePassingRulesApproximations.forward_statistics!(s.m, s.V, s.C, s.workspace, method, f, μs, Σs)
+# `(μ, Σ, C)` into the scratch, in place; the arrays are the scratch's. A scratch that holds
+# nothing, for scalars, leaves them to the allocating form, which allocates nothing there. The
+# branches are on types, so each call compiles to one of them.
+const MPRA = MessagePassingRulesApproximations
+
+function scratch_statistics!(s::GaussianScratch, method, f::F, μs, Σs) where {F}
+    s.workspace === nothing && return MPRA.forward_statistics(method, f, μs, Σs)
+    s.m === nothing || return MPRA.forward_statistics!(s.m, s.V, s.C, s.workspace, method, f, μs, Σs)
+    s.C === nothing && return MPRA.forward_statistics!(s.workspace, method, f, μs, Σs)
+    return MPRA.forward_statistics!(s.C, s.workspace, method, f, μs, Σs)
+end
+
+# The mean and covariance of `f` of the inputs, without the cross-covariance, which a message
+# towards `out` does not need; a linearisation computes them with it.
+function scratch_moments!(s::GaussianScratch, method, f::F, μs, Σs) where {F}
+    s.workspace === nothing && return MPRA.approximate(method, f, μs, Σs)
+    method isa Linearization && return Base.front(scratch_statistics!(s, method, f, μs, Σs))
+    s.m === nothing && return MPRA.approximate!(s.workspace, method, f, μs, Σs)
+    return MPRA.approximate!(s.m, s.V, s.workspace, method, f, μs, Σs)
+end
 
 # The normal approximation of `f` of the inputs, as `approximate_normal` gives it, through the
 # scratch: no allocation but the message's own arrays.
 function approximate_normal!(scratch::GaussianScratch, method, f::F, distributions::Tuple) where {F}
     μs, Σs = input_moments(distributions)
-    μ, Σ, _ = scratch_statistics!(scratch, method, f, μs, Σs)
+    μ, Σ = scratch_moments!(scratch, method, f, μs, Σs)
     return normal_message(μ, Σ)
 end
 
