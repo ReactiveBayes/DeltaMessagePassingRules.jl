@@ -38,8 +38,15 @@ normal with the same mean and covariance:
 ```
 
 [`Unscented`](@extref MessagePassingRulesApproximations.Unscented) estimates these moments from
-sigma points, and [`Linearization`](@extref MessagePassingRulesApproximations.Linearization)
-from the first-order expansion of `f` at the inputs' means. Towards the inputs, the joint belief
+sigma points, [`GaussHermiteCubature`](@extref MessagePassingRulesApproximations.GaussHermiteCubature)
+from a cubature grid, and [`Linearization`](@extref MessagePassingRulesApproximations.Linearization)
+from the first-order expansion of `f` at the inputs' means. The generalized unscented transform,
+`GenUnscented`, matches the third and fourth moments of each input too, so towards `out` it takes
+messages of any univariate family, gamma or beta for instance. For a node with one input whose
+message is a gamma,
+[`GaussLaguerreQuadrature`](@extref MessagePassingRulesApproximations.GaussLaguerreQuadrature)
+integrates against it directly, and its joint is that gamma reweighted by the message from `out`
+and matched to a gamma by its mean and variance. Towards the inputs, the joint belief
 over them is the forward joint corrected by the message from `out`, with a Rauch–Tung–Striebel
 step, [`smoothRTS`](@extref MessagePassingRulesApproximations.smoothRTS).
 
@@ -70,8 +77,11 @@ node's default algorithm,
 two keywords:
 
 - `method`, required: [`Unscented`](@extref MessagePassingRulesApproximations.Unscented)`()`,
-  [`Linearization`](@extref MessagePassingRulesApproximations.Linearization)`()`, or
-  [`CVIProjection`](@ref)`()`, once ExponentialFamilyProjection is loaded;
+  [`Linearization`](@extref MessagePassingRulesApproximations.Linearization)`()`,
+  [`GaussHermiteCubature`](@extref MessagePassingRulesApproximations.GaussHermiteCubature)`(p)`,
+  `GenUnscented()` or `GenConstrainedUnscented(lower, upper)`,
+  [`GaussLaguerreQuadrature`](@extref MessagePassingRulesApproximations.GaussLaguerreQuadrature)`(p)`,
+  or [`CVIProjection`](@ref)`()`, once ExponentialFamilyProjection is loaded;
 - `inverse`, default `nothing`: a known inverse of `f`, or a tuple of them, one per input.
 
 The two forms of the algorithm declare different
@@ -179,10 +189,17 @@ It is the message the inverse gave, mean `1` and variance `0.5`, since `f` is af
 ## Limitations
 
 - The node has rules only under a [`DeltaApproximation`](@ref), which has no default method.
-- [`Unscented`](@extref MessagePassingRulesApproximations.Unscented) and
-  [`Linearization`](@extref MessagePassingRulesApproximations.Linearization) take normal messages
-  only, univariate or multivariate, and give normal messages. `Linearization` needs `f`
-  differentiable by ForwardDiff.
+- [`Unscented`](@extref MessagePassingRulesApproximations.Unscented),
+  [`Linearization`](@extref MessagePassingRulesApproximations.Linearization) and
+  [`GaussHermiteCubature`](@extref MessagePassingRulesApproximations.GaussHermiteCubature) take
+  normal messages only, univariate or multivariate, and give normal messages. `Linearization`
+  needs `f` differentiable by ForwardDiff; Gauss–Hermite evaluates `f` at `p^d` points, for `d`
+  the dimension of the inputs' joint.
+- `GenUnscented` takes messages of any univariate family towards `out` and through an inverse,
+  but normal ones for the joint over the inputs, since the Rauch–Tung–Striebel step is for a
+  normal joint.
+- [`GaussLaguerreQuadrature`](@extref MessagePassingRulesApproximations.GaussLaguerreQuadrature)
+  takes a node with one input, whose message is a gamma or an exponential, and no inverse.
 - Without an inverse, the message towards an input divides the input's share of the joint by the
   input's own message. The difference of the precisions need not be positive definite, and the
   result is then not a proper normal.

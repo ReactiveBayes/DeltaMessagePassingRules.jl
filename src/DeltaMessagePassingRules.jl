@@ -8,9 +8,16 @@ messages through `f` by an approximation method, which the node's algorithm name
 - [`DeltaFn`](@ref): the node, with interfaces `out` and the group `in`;
 - [`DeltaApproximation`](@ref): its algorithm, which a model must give, holding the method and
   an optional known inverse of `f`;
-- the Gaussian methods [`Unscented`](@extref MessagePassingRulesApproximations.Unscented) and
-  [`Linearization`](@extref MessagePassingRulesApproximations.Linearization), from
+- the Gaussian methods [`Unscented`](@extref MessagePassingRulesApproximations.Unscented),
+  [`Linearization`](@extref MessagePassingRulesApproximations.Linearization) and
+  [`GaussHermiteCubature`](@extref MessagePassingRulesApproximations.GaussHermiteCubature), from
   MessagePassingRulesApproximations, for normal messages;
+- the generalized unscented transform,
+  [`GenUnscented`](@extref MessagePassingRulesApproximations.GenUnscented), for messages of any
+  univariate family with four moments towards `out`, and normal ones for the joint over the
+  inputs;
+- [`GaussLaguerreQuadrature`](@extref MessagePassingRulesApproximations.GaussLaguerreQuadrature),
+  for a node with one input whose messages are gamma;
 - [`CVIProjection`](@ref), sampling and projection onto an exponential family, for messages of
   other families. Its rules are in a package extension, loaded with
   `using ExponentialFamilyProjection`.
@@ -40,7 +47,9 @@ module DeltaMessagePassingRules
 
 using MessagePassingRulesBase, BayesBase, ExponentialFamily, Distributions
 using MessagePassingRulesBase: AbstractAlgorithm, Target, getnodefn
-using MessagePassingRulesApproximations: MessagePassingRulesApproximations, Unscented, Linearization, unscented_statistics, smoothRTS
+using MessagePassingRulesApproximations:
+    MessagePassingRulesApproximations, Unscented, Linearization, GaussHermiteCubature, GaussLaguerreQuadrature,
+    GenUnscented, GenConstrainedUnscented, LogIntegrand, smoothRTS, approximate_meancov
 
 export DeltaFn, DeltaApproximation, is_delta_node_compatible
 export CVIProjection, CVISamplingStrategy, FullSampling, MeanBased, ProposalDistributionContainer
@@ -48,6 +57,8 @@ export CVIProjection, CVISamplingStrategy, FullSampling, MeanBased, ProposalDist
 include("node.jl")
 include("approximate.jl")
 include("rules/gaussian.jl")
+include("rules/moments.jl")
+include("rules/gausslaguerre.jl")
 include("cvi_projection.jl")
 
 end

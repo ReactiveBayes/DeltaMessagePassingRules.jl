@@ -28,8 +28,11 @@ struct DeltaFn{F} end
     is_delta_node_compatible(method) -> Val{Bool}
 
 Whether [`DeltaApproximation`](@ref) accepts the approximation method `method`: `Val(true)` for
-[`Unscented`](@extref MessagePassingRulesApproximations.Unscented) and
-[`Linearization`](@extref MessagePassingRulesApproximations.Linearization), and for
+[`Unscented`](@extref MessagePassingRulesApproximations.Unscented),
+[`Linearization`](@extref MessagePassingRulesApproximations.Linearization),
+[`GaussHermiteCubature`](@extref MessagePassingRulesApproximations.GaussHermiteCubature),
+[`GaussLaguerreQuadrature`](@extref MessagePassingRulesApproximations.GaussLaguerreQuadrature) and
+the generalized unscented transform, `GenUnscented` and `GenConstrainedUnscented`, and for
 [`CVIProjection`](@ref) once ExponentialFamilyProjection is loaded; `Val(false)` for anything
 else. Every constructor of `DeltaApproximation` checks it.
 
@@ -39,6 +42,9 @@ adding a method of this function that returns `Val(true)`.
 is_delta_node_compatible(method) = Val(false)
 is_delta_node_compatible(::Unscented) = Val(true)
 is_delta_node_compatible(::Linearization) = Val(true)
+is_delta_node_compatible(::GaussHermiteCubature) = Val(true)
+is_delta_node_compatible(::GaussLaguerreQuadrature) = Val(true)
+is_delta_node_compatible(::Union{GenUnscented, GenConstrainedUnscented}) = Val(true)
 
 """
     DeltaApproximation(; method, inverse = nothing)
@@ -55,6 +61,13 @@ has no rules without it.
     transform, for normal messages;
   - [`Linearization`](@extref MessagePassingRulesApproximations.Linearization)`()`, the
     first-order expansion at the inputs' means, for normal messages;
+  - [`GaussHermiteCubature`](@extref MessagePassingRulesApproximations.GaussHermiteCubature)`(p)`,
+    `p` points per dimension of the inputs' joint, for normal messages;
+  - `GenUnscented()`, the generalized unscented transform: towards `out` for messages of any
+    univariate family, matching their skewness and kurtosis, and normal ones otherwise; and
+    `GenConstrainedUnscented(lower, upper)`, with its points within bounds;
+  - [`GaussLaguerreQuadrature`](@extref MessagePassingRulesApproximations.GaussLaguerreQuadrature)`(p)`,
+    for a node with one input whose messages are gamma or exponential, without an inverse;
   - [`CVIProjection`](@ref)`()`, sampling and projection onto an exponential family, for any
     messages; its rules are in a package extension, loaded with `using
     ExponentialFamilyProjection`.
@@ -90,7 +103,7 @@ julia> DeltaApproximation(method = Unscented(), inverse = (y -> y - 1,)) isa Del
 true
 
 julia> DeltaApproximation(method = 1)
-ERROR: ArgumentError: `1` is not an approximation method of the Delta node. It takes `Unscented()` and `Linearization()` from MessagePassingRulesApproximations, and `CVIProjection()` once ExponentialFamilyProjection is loaded.
+ERROR: ArgumentError: `1` is not an approximation method of the Delta node. It takes `Unscented()`, `Linearization()`, `GaussHermiteCubature(p)`, `GaussLaguerreQuadrature(p)` and `GenUnscented()` from MessagePassingRulesApproximations, and `CVIProjection()` once ExponentialFamilyProjection is loaded.
 ```
 
 See also [`DeltaFn`](@ref), [`CVIProjection`](@ref).
@@ -120,6 +133,13 @@ delta_method_hint(method) = nothing
 # A method that has no use for a known inverse says so when given one.
 check_inverse(method, inverse) = nothing
 
+# Gauss–Laguerre integrates against a gamma, and the message from `out` pushed through an inverse
+# is no gamma.
+function check_inverse(::GaussLaguerreQuadrature, inverse)
+    inverse === nothing || throw(ArgumentError("`GaussLaguerreQuadrature` integrates against the gamma message of the input, and takes no inverse"))
+    return nothing
+end
+
 # A Delta node without its approximation method runs under the default algorithm, where it has no
 # rules: say how to give it one.
 MessagePassingRulesBase.rule_not_found_hint(::Type{<:DeltaFn}, notfound) =
@@ -129,9 +149,9 @@ MessagePassingRulesBase.rule_not_found_hint(::Type{<:DeltaFn}, notfound) =
 
 function incompatible_method_message(method)
     shown = method isa Union{Number, Symbol, AbstractString, Type} ? string(method) : string(nameof(typeof(method)), "(…)")
-    message = "`$shown` is not an approximation method of the Delta node. It takes `Unscented()` and " *
-        "`Linearization()` from MessagePassingRulesApproximations, and `CVIProjection()` once " *
-        "ExponentialFamilyProjection is loaded."
+    message = "`$shown` is not an approximation method of the Delta node. It takes `Unscented()`, " *
+        "`Linearization()`, `GaussHermiteCubature(p)`, `GaussLaguerreQuadrature(p)` and `GenUnscented()` " *
+        "from MessagePassingRulesApproximations, and `CVIProjection()` once ExponentialFamilyProjection is loaded."
     hint = delta_method_hint(method)
     return hint === nothing ? message : string(message, " ", hint)
 end

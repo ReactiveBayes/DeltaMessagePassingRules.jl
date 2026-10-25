@@ -2,25 +2,18 @@
     approximate_normal(method, f, distributions::Tuple)
 
 The normal approximation of `f(x₁, …, xₙ)` for independent normal inputs `distributions`, by
-`method`, [`Unscented`](@extref MessagePassingRulesApproximations.Unscented) or
-[`Linearization`](@extref MessagePassingRulesApproximations.Linearization): a normal with the
-pushforward's mean and covariance, univariate or multivariate as the output of `f` is. The
-message rules towards `out`, and towards an input through a known inverse, are this call.
+`method`, one of the Gaussian methods: a normal with the pushforward's mean and covariance,
+univariate or multivariate as the output of `f` is. The message rules towards `out`, and towards
+an input through a known inverse, are this call.
 """
 function approximate_normal end
 
-function approximate_normal(method::Unscented, f::F, distributions::NTuple{N, NormalDistributionsFamily}) where {F, N}
+# The Gaussian methods: their inputs are normal messages, given by their means and covariances.
+const GaussianMethod = Union{Unscented, Linearization, GaussHermiteCubature, GenUnscented, GenConstrainedUnscented}
+
+function approximate_normal(method::GaussianMethod, f::F, distributions::NTuple{N, NormalDistributionsFamily}) where {F, N}
     statistics = mean_cov.(distributions)
     μ, Σ = MessagePassingRulesApproximations.approximate(method, f, first.(statistics), last.(statistics))
-    return convert(promote_variate_type(typeof(μ), NormalMeanVariance), μ, Σ)
-end
-
-# The inputs' joint pushed through the linear map of `f` at their means.
-function approximate_normal(method::Linearization, f::F, distributions::NTuple{N, NormalDistributionsFamily}) where {F, N}
-    statistics = mean_cov.(distributions)
-    means, covs = first.(statistics), last.(statistics)
-    μ_in, Σ_in = mean_cov(convert(JointNormal, means, covs))
-    μ, Σ, _ = forward_statistics(method, f, means, covs, μ_in, Σ_in)
     return convert(promote_variate_type(typeof(μ), NormalMeanVariance), μ, Σ)
 end
 
@@ -35,9 +28,56 @@ smooths these with the message from `out`, by
 """
 function forward_statistics end
 
-forward_statistics(method::Unscented, f::F, μs, Σs, μ_in, Σ_in) where {F} = unscented_statistics(method, f, μs, Σs)
+forward_statistics(method::GaussianMethod, f::F, μs, Σs, μ_in, Σ_in) where {F} =
+    MessagePassingRulesApproximations.forward_statistics(method, f, μs, Σs)
 
-function forward_statistics(method::Linearization, f::F, μs, Σs, μ_in, Σ_in) where {F}
-    A, b = MessagePassingRulesApproximations.approximate(method, f, μs)
-    return A * μ_in + b, A * Σ_in * A', Σ_in * A'
+## The scratch of the Gaussian rules
+
+# A Gaussian rule's working memory: the method's workspace for the inputs' moments, and the outputs
+# of `forward_statistics!`, `nothing` where they are scalars. Built once per stream, it calls `f`
+# once, at the inputs' means, for the size of the output; the rule's message copies the outputs.
+struct GaussianScratch{W, M, V, C}
+    workspace::W
+    m::M
+    V::V
+    C::C
 end
+
+function input_moments(distributions::Tuple)
+    statistics = map(mean_cov, distributions)
+    return map(first, statistics), map(last, statistics)
+end
+
+function gaussian_scratch(method, f::F, distributions::Tuple) where {F}
+    μs, Σs = input_moments(distributions)
+    ws = MessagePassingRulesApproximations.workspace(method, f, μs, Σs)
+    y = f(μs...)
+    d_in = sum(length, μs)
+    T = float(promote_type(eltype(y), map(eltype, μs)..., map(eltype, Σs)...))
+    if y isa Real
+        cross = (length(μs) == 1 && first(μs) isa Real) ? nothing : Vector{T}(undef, d_in)
+        return GaussianScratch(ws, nothing, nothing, cross)
+    else
+        n = length(y)
+        return GaussianScratch(ws, Vector{T}(undef, n), Matrix{T}(undef, n, n), Matrix{T}(undef, d_in, n))
+    end
+end
+
+# `(μ, Σ, C)` into the scratch, in place; the arrays are the scratch's.
+scratch_statistics!(s::GaussianScratch{W, Nothing, Nothing, Nothing}, method, f, μs, Σs) where {W} =
+    MessagePassingRulesApproximations.forward_statistics!(s.workspace, method, f, μs, Σs)
+scratch_statistics!(s::GaussianScratch{W, Nothing, Nothing}, method, f, μs, Σs) where {W} =
+    MessagePassingRulesApproximations.forward_statistics!(s.C, s.workspace, method, f, μs, Σs)
+scratch_statistics!(s::GaussianScratch, method, f, μs, Σs) =
+    MessagePassingRulesApproximations.forward_statistics!(s.m, s.V, s.C, s.workspace, method, f, μs, Σs)
+
+# The normal approximation of `f` of the inputs, as `approximate_normal` gives it, through the
+# scratch: no allocation but the message's own arrays.
+function approximate_normal!(scratch::GaussianScratch, method, f::F, distributions::Tuple) where {F}
+    μs, Σs = input_moments(distributions)
+    μ, Σ, _ = scratch_statistics!(scratch, method, f, μs, Σs)
+    return normal_message(μ, Σ)
+end
+
+normal_message(μ::Real, Σ::Real) = NormalMeanVariance(μ, Σ)
+normal_message(μ::AbstractVector, Σ::AbstractMatrix) = MvNormalMeanCovariance(copy(μ), copy(Σ))

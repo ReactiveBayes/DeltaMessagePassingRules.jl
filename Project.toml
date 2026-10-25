@@ -1,6 +1,6 @@
 name = "DeltaMessagePassingRules"
 uuid = "ea5de7a7-24c9-4a61-90ce-ef77c844b13f"
-version = "1.0.0"
+version = "1.1.0"
 
 # The Delta node, z = f(x₁, …, xₙ) for a deterministic function f: its declaration, its own
 # algorithm and its rules.
@@ -26,7 +26,7 @@ Distributions = "0.25"
 Documenter = "1"
 ExponentialFamily = "2.5"
 ExponentialFamilyProjection = "3"
-MessagePassingRulesApproximations = "1"
+MessagePassingRulesApproximations = "1.1"
 MessagePassingRulesBase = "1"
 MessagePassingRulesTestUtils = "1"
 Pkg = "1.10"
