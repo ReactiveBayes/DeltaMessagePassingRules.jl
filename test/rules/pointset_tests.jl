@@ -128,3 +128,21 @@ end
 
     @test_throws ArgumentError DeltaApproximation(method = GaussLaguerreQuadrature(8), inverse = identity)
 end
+
+@testitem "rules:Delta:joint of a scalar input through a vector function" tags = [:rules] setup = [DeltaTestNode] begin
+    using DeltaMessagePassingRules, MessagePassingRulesTestUtils, MessagePassingRulesApproximations, ExponentialFamily
+    using .DeltaTestNode: context
+
+    # x ↦ [x, 2x] is linear, so every Gaussian method is exact: the prior N(1, 2) and the message
+    # N([2, 3], I) give precision 1/2 + 1 + 4 and mean (1/2 + 2 + 6) / 5.5.
+    double(x) = [x, 2x]
+    for method in (Linearization(), Unscented(; alpha = 1.0), GaussHermiteCubature(3))
+        @test_marginal_update_rule(
+            node = DeltaFn{typeof(double)}, target = (:in,), algorithm = DeltaApproximation(method = method), check_type_promotion = false, atol = 1.0e-10,
+            cases = [
+                (m = (out = MvNormalMeanCovariance([2.0, 3.0], [1.0 0.0; 0.0 1.0]), in = (NormalMeanVariance(1.0, 2.0),)), ctx = context(double)) =>
+                    JointNormal(NormalMeanVariance(8.5 / 5.5, 1 / 5.5), ((),)),
+            ],
+        )
+    end
+end
