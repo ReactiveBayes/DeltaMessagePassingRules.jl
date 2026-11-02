@@ -9,9 +9,8 @@ every belief takes, by [`laplace_form`](@ref):
   changes;
 - a product with a finite discrete factor, a categorical, is normalised exactly over its support;
 - any other product is Laplace's approximation in the unconstrained coordinates of its domain:
-  a Gaussian on the real line, a `LogNormal` on the positive half-line, and an
-  `ExpectationApproximations.TransformedGaussian` otherwise. The domain is that of the first
-  factor that has one, a prior's support.
+  a Gaussian on the real line, and an `ExpectationApproximations.TransformedGaussian` on any
+  other domain. The domain is that of the first factor that has one, a prior's support.
 
 Each projection reports the log of the product's normaliser, Laplace's evidence approximation,
 which completes the log scale of a message whose normaliser was unknown.

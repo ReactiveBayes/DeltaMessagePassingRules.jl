@@ -39,11 +39,11 @@ end
     @test result.converged
 
     # The half-line: Gamma(2, 1) times x³e⁻²ˣ is Gamma(5, rate 3), in log coordinates
-    # LogNormal(log(5/3), 1/√5).
+    # N(log(5/3), 1/5).
     product = ProductOf(Gamma(2.0, 1.0), NodeFunctionLogPdf(x -> 3 * log(x) - 2 * x))
     result = laplace_form(LaplaceForm(), product)
-    @test result.distribution isa LogNormal
-    @test all(params(result.distribution) .≈ (log(5 / 3), 1 / sqrt(5)))
+    @test result.distribution isa EA.TransformedGaussian && result.distribution.domain === EA.Positive()
+    @test mean(result.distribution.gaussian) ≈ log(5 / 3) && std(result.distribution.gaussian) ≈ 1 / sqrt(5)
     @test result.logZ ≈ EA.laplace(x -> logpdf(product, x), 2.0, EA.Positive()).logZ
 
     # The unit interval: Beta(2, 2) times p³(1 - p)⁵, against the same Laplace by hand.
@@ -91,7 +91,7 @@ end
 
     # A log-density with a domain and nothing else starts inside it.
     alone = ContinuousUnivariateLogPdf(DomainSets.HalfLine(), x -> 3 * log(x) - 2 * x)
-    @test laplace_form(LaplaceForm(), alone).distribution isa LogNormal
+    @test laplace_form(LaplaceForm(), alone).distribution.domain === DeltaMessagePassingRules.EA.Positive()
     # One with neither a domain nor a dimension is of a number, a likelihood's message alone.
     likelihood = NodeFunctionLogPdf(x -> -(2.0 - x)^2 / 2)
     @test mean(laplace_form(LaplaceForm(), ProductOf(likelihood, likelihood)).distribution) ≈ 2.0
