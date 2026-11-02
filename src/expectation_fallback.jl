@@ -15,6 +15,14 @@ mass is plugged in, a categorical summed exactly and a Gaussian integrated by th
 every other input is a point mass the message is the node's log-density itself, and its log scale
 is known up to its normaliser, which a projection such as [`LaplaceForm`](@ref) computes.
 
+A deterministic node, such as the [`DeltaFn`](@ref) of `z := f(x, y)` without an approximation
+method, has its function from the engine's node object,
+[`getnodefn`](@extref MessagePassingRulesBase.getnodefn)`(ctx.node, Target(:out))`. Towards `out`
+the message is the moment-matched pushforward of the inputs' messages through it, a Gaussian, or
+a point mass when every input is one. Towards an input it is the message on `out` pulled back
+through the function, `x ↦ E[log m_out(f(…, x, …))]` over the other inputs: exact for a single
+input, whose log scale is then the message on `out`'s up to the normaliser.
+
 Unlike [`NodeFunctionRuleFallback`](@extref MessagePassingRulesBase.NodeFunctionRuleFallback),
 which plugs in the inputs' means, the message keeps their spread: a categorical's probabilities and
 a Gaussian's variance.
@@ -28,7 +36,7 @@ See also [`LaplaceForm`](@ref).
 struct ExpectationRuleFallback end
 
 function MessagePassingRulesBase.call_fallback(::ExpectationRuleFallback, node, target::Union{Target, IndexedTarget}, algorithm, ctx, args)
-    sdtype(node) isa Stochastic || return nothing
+    sdtype(node) isa Deterministic && return deterministic_message(node, target, ctx, args)
     return stochastic_message(node, target, ctx, args)
 end
 
@@ -141,3 +149,82 @@ function outbound_domain(node::Type{<:ContinuousUnivariateDistribution}, ::Targe
     distribution = node(map(name -> mean(values[name]), Tuple(parameters))...)
     return DomainSets.Interval(minimum(distribution), maximum(distribution))
 end
+
+# A deterministic node's messages, through its function of the inputs in order: towards `out` the
+# moment-matched pushforward of the inputs, towards an input the message on `out` pulled back
+function deterministic_message(node, target, ctx, args)
+    instance = ctx.node
+    isnothing(instance) && return nothing
+    f = getnodefn(instance, Target(:out))
+    inputs = (rule_inputs(node, args.m)..., rule_inputs(node, args.q)...)
+    order = input_order(node, map(first, inputs), target)
+    isnothing(order) && return nothing
+    values = Dict(inputs)
+    target isa Target{:out} && return pushforward_message(f, map(key -> values[key], order), ctx)
+    haskey(values, :out) || return nothing
+    return pullback_message(f, values[:out], order, target, values, ctx, args)
+end
+
+function pushforward_message(f, inputs, ctx)
+    all(input -> input isa PointMass, inputs) && return with_logscale(PointMass(f(map(mean, inputs)...)), 0.0)
+    m, V = EA.mean_cov(expectation_backend(ctx), x -> f(x...), FactorizedJoint(inputs))
+    return m isa Real ? NormalMeanVariance(m, V) : MvNormalMeanCovariance(m, V)
+end
+
+function pullback_message(f, outbound, order, target, values, ctx, args)
+    k = findfirst(isequal(target_key(target)), order)
+    others = Tuple(key for key in order if key != target_key(target))
+    if isempty(others)
+        density = NodeFunctionLogPdf(PulledBack(f, outbound))
+        logscale = outbound_logscale(args)
+        isnothing(logscale) && return density
+        # the message on out at f(x): its log scale, and a normaliser in x that is unknown
+        return with_logscale(density, isdefined_logscale(logscale) ? UndefinedLogScale(:unnormalised_product, logscale) : logscale)
+    end
+    prepared = prepare_expectation(expectation_backend(ctx), FactorizedJoint(map(key -> values[key], others)))
+    return NodeFunctionLogPdf(ExpectedPullBack(f, outbound, prepared, Val(k)))
+end
+
+# The log scale of the message on out, where the engine tracks log scales
+outbound_logscale(args) = isnothing(args.logscale) ? nothing : args.logscale.m[:out]
+
+# `x ↦ log m_out(f(x))`, for a single input
+struct PulledBack{F, M}
+    f::F
+    outbound::M
+end
+
+(pulled::PulledBack)(x) = logpdf(pulled.outbound, pulled.f(x))
+
+# `x ↦ E[log m_out(f(…, x, …))]` over the other inputs, `x` the `K`-th
+struct ExpectedPullBack{K, F, M, P}
+    f::F
+    outbound::M
+    prepared::P
+end
+
+ExpectedPullBack(f::F, outbound::M, prepared::P, ::Val{K}) where {K, F, M, P} = ExpectedPullBack{K, F, M, P}(f, outbound, prepared)
+
+(pulled::ExpectedPullBack{K})(x) where {K} = expectation(pulled.prepared, others -> logpdf(pulled.outbound, pulled.f(insert_at(others, K, x)...)))
+
+insert_at(others::Tuple, k, x) = (others[1:(k - 1)]..., x, others[k:end]...)
+
+# The inputs of a deterministic node in its function's order, the target among them: the
+# interfaces after `out`, a group by its members' indices
+function input_order(node, keys, target)
+    all_keys = (keys..., target_key(target))
+    order = Any[]
+    for name in Iterators.drop(interfaces(node), 1)
+        if name in interface_groups(node)
+            members = sort!([key[2] for key in all_keys if key isa Tuple{Symbol, Integer} && key[1] === name])
+            append!(order, [(name, k) for k in members])
+        else
+            name in all_keys || return nothing
+            push!(order, name)
+        end
+    end
+    return Tuple(order)
+end
+
+target_key(::Target{E}) where {E} = E
+target_key(target::IndexedTarget) = (target_edge(target), target_index(target))

@@ -20,6 +20,10 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   input a point mass the message is exact, its log scale known up to the normaliser that
   `LaplaceForm` computes. Towards `out` of a node that is a distribution, the message has its
   support.
+- `ExpectationRuleFallback` on a deterministic node, such as a `DeltaFn` without an approximation
+  method: towards `out` the moment-matched pushforward of the inputs' messages, a Gaussian, or a
+  point mass for point masses; towards an input the message on `out` pulled back through the
+  function, in expectation over the other inputs, exact for a single one.
 
 ### Changed
 
