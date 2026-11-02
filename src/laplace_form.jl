@@ -36,11 +36,12 @@ LaplaceForm(; tol::Real = 1.0e-10, maxiters::Integer = 100) = LaplaceForm(tol, I
 The projection of [`LaplaceForm`](@ref): `distribution` is the projected `density`, and `logZ` the
 log of the normaliser of `density`, `nothing` for a closed form that passes. `previous`, the mode
 of an earlier projection of the same variable, is where Laplace's iterations start; without one
-they start at the mean of the first factor that has one, or in the middle of the domain.
+they start at the mean of the first factor that has one, or in the middle of the domain. A product
+that does not tell its dimension, such as a likelihood's message alone, is taken to be of a number.
 
 # Throws
 An `ArgumentError` when the product has no factor that tells its dimension, a distribution or a
-log-density with a domain, and no `previous` mode.
+log-density with a domain, no `previous` mode, and does not take a number.
 """
 function laplace_form(form::LaplaceForm, density, previous = nothing)
     is_closed_form(density) && return (; distribution = density, logZ = nothing, mode = previous, converged = true, iterations = 0)
@@ -96,12 +97,9 @@ function start_point(logp, domain, parts, previous)
         part isa Distribution && hasmethod(mean, Tuple{typeof(part)}) && push!(candidates, mean(part))
     end
     dimension = product_dimension(parts, previous)
-    isnothing(dimension) && throw(
-        ArgumentError(
-            "`LaplaceForm` cannot tell the dimension of the product: none of its factors is a distribution or a log-density with a domain. " *
-                "A prior on the variable gives one, or an initial marginal, the previous mode"
-        )
-    )
+    # A product that does not tell its dimension, such as a likelihood's message alone, is taken
+    # to be of a number, as long as it takes one.
+    isnothing(dimension) && return number_start(logp, domain)
     push!(candidates, EA.forward(domain, dimension == 0 ? 0.0 : zeros(dimension)))
     for x0 in candidates
         all(part -> insupport(part, x0), parts) && isfinite(logp(x0)) && return x0
@@ -119,4 +117,20 @@ function product_dimension(parts, previous)
         part isa ContinuousMultivariateLogPdf && DomainSets.dimension(support(part)) isa Integer && return DomainSets.dimension(support(part))
     end
     return nothing
+end
+
+function number_start(logp, domain)
+    x0 = EA.forward(domain, 0.0)
+    try
+        logp(x0)
+    catch error
+        error isa Union{MethodError, DimensionMismatch, BoundsError} || rethrow()
+        throw(
+            ArgumentError(
+                "`LaplaceForm` cannot tell the dimension of the product: none of its factors is a distribution or a log-density with a domain, " *
+                    "and it does not take a number. A prior on the variable gives one, or an initial marginal, the previous mode"
+            )
+        )
+    end
+    return x0
 end

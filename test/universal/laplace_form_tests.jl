@@ -92,8 +92,12 @@ end
     # A log-density with a domain and nothing else starts inside it.
     alone = ContinuousUnivariateLogPdf(DomainSets.HalfLine(), x -> 3 * log(x) - 2 * x)
     @test laplace_form(LaplaceForm(), alone).distribution isa LogNormal
-    # One with neither a domain nor a dimension needs the previous mode.
+    # One with neither a domain nor a dimension is of a number, a likelihood's message alone.
     likelihood = NodeFunctionLogPdf(x -> -(2.0 - x)^2 / 2)
-    @test_throws "dimension" laplace_form(LaplaceForm(), ProductOf(likelihood, likelihood))
-    @test mean(laplace_form(LaplaceForm(), ProductOf(likelihood, likelihood), 0.0).distribution) ≈ 2.0
+    @test mean(laplace_form(LaplaceForm(), ProductOf(likelihood, likelihood)).distribution) ≈ 2.0
+    @test mean(laplace_form(LaplaceForm(), likelihood).distribution) ≈ 2.0
+    # One that does not take a number needs a dimension from somewhere.
+    vector = NodeFunctionLogPdf(x -> -(x[1] - 1.0)^2 / 2 - (x[2] - 2.0)^2 / 2)
+    @test_throws "dimension" laplace_form(LaplaceForm(), vector)
+    @test mean(laplace_form(LaplaceForm(), vector, [0.0, 0.0]).distribution) ≈ [1.0, 2.0]
 end
