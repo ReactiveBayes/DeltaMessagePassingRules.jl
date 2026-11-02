@@ -81,7 +81,8 @@ end
 
 function continuous_form(form, density, parts, previous)
     domain = something(EA.domain(density), EA.RealLine())
-    logp = x -> logpdf(density, x)
+    # -Inf outside the support of a factor, so that a Newton step leaving it is shortened
+    logp = x -> all(part -> insupport(part, x), parts) ? logpdf(density, x) : -Inf
     x0 = start_point(logp, domain, parts, previous)
     result = EA.laplace(logp, x0, domain; tol = form.tol, maxiters = form.maxiters)
     return (; result.distribution, result.logZ, result.mode, result.converged, result.iterations)
@@ -93,7 +94,7 @@ function start_point(logp, domain, parts, previous)
     candidates = Any[]
     isnothing(previous) || push!(candidates, previous)
     for part in parts
-        part isa Distribution && hasmethod(mean, Tuple{typeof(part)}) && push!(candidates, mean(part))
+        part isa Distribution && (m = factor_mean(part); isnothing(m) || push!(candidates, m))
     end
     dimension = product_dimension(parts, previous)
     # A product that does not tell its dimension, such as a likelihood's message alone, is taken
@@ -101,7 +102,7 @@ function start_point(logp, domain, parts, previous)
     isnothing(dimension) && return number_start(logp, domain)
     push!(candidates, EA.forward(domain, dimension == 0 ? 0.0 : zeros(dimension)))
     for x0 in candidates
-        all(part -> insupport(part, x0), parts) && isfinite(logp(x0)) && return x0
+        isfinite(logp(x0)) && return x0
     end
     return last(candidates)
 end
@@ -132,4 +133,14 @@ function number_start(logp, domain)
         )
     end
     return x0
+end
+
+# The mean of a factor, where it has one: Distributions gives no default for a user's distribution
+function factor_mean(part)
+    try
+        return mean(part)
+    catch error
+        error isa MethodError || rethrow()
+        return nothing
+    end
 end

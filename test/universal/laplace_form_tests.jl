@@ -101,3 +101,25 @@ end
     @test_throws "dimension" laplace_form(LaplaceForm(), vector)
     @test mean(laplace_form(LaplaceForm(), vector, [0.0, 0.0]).distribution) ≈ [1.0, 2.0]
 end
+
+@testitem "laplace_form: factors that say little about themselves" tags = [:universal] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions
+    using MessagePassingRulesBase: NodeFunctionLogPdf
+    import DeltaMessagePassingRules: LaplaceForm, laplace_form
+
+    # A user's distribution with a log-density and `insupport`, which a product needs, and no
+    # mean or bounds.
+    struct Bare <: ContinuousUnivariateDistribution end
+    Distributions.logpdf(::Bare, x::Real) = -x^2 / 2
+    Distributions.insupport(::Bare, x::Real) = true
+    result = laplace_form(LaplaceForm(), ProductOf(Bare(), NodeFunctionLogPdf(x -> -(x - 2.0)^2 / 2)))
+    @test mean(result.distribution) ≈ 1.0 && var(result.distribution) ≈ 0.5
+
+    # One that says its support only through `insupport`: outside it the product's log-density is
+    # -Inf, so Newton's steps that leave it are shortened rather than an error.
+    struct HalfLine <: ContinuousUnivariateDistribution end
+    Distributions.logpdf(::HalfLine, x::Real) = log(x) - x
+    Distributions.insupport(::HalfLine, x::Real) = x > 0
+    result = laplace_form(LaplaceForm(), ProductOf(HalfLine(), NodeFunctionLogPdf(x -> -(x - 0.05)^2 / 0.02)), 1.0)
+    @test result.converged && result.mode > 0
+end
