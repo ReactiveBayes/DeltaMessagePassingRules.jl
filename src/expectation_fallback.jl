@@ -4,8 +4,7 @@
 A rule fallback for universal inference: where no rule fits, the messages, joint marginals and
 average energies of a node, computed from its log-density with the expectation backend of the
 rule context, `ctx.expectation`. An engine consults it through
-[`call_fallback`](@extref MessagePassingRulesBase.call_fallback) and
-[`call_energy_fallback`](@extref MessagePassingRulesBase.call_energy_fallback), never in place of
+MessagePassingRulesBase's `call_fallback` and `call_energy_fallback`, never in place of
 a rule that exists.
 
 Towards an interface of a stochastic node, the message is the expected log-density
@@ -74,8 +73,8 @@ end
 
 `x ↦ E[f(; …)]`, the keyword log-density `f` of a node in expectation over its inputs, prepared
 once (`prepared`, `nothing` for none), at `x` for the target. `slots` names each keyword argument of `f` and where its
-value comes from: the position of an input in the prepared expectation, [`Free`](@ref) for the
-target, or a tuple of either for a group.
+value comes from: the position of an input in the prepared expectation, `Free()` for the target,
+or a tuple of either for a group.
 """
 struct ExpectedLogDensity{N, S, F, P}
     f::F
