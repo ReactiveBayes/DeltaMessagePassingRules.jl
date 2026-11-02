@@ -14,6 +14,13 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   coordinates of its domain, through ExpectationApproximations. It reports the log of the
   product's normaliser, and starts at the previous mode when given one.
 
+- `ExpectationRuleFallback`, a rule fallback whose message from a stochastic node is the expected
+  log-density `x ↦ E_q[log f(x, ·)]` over every other input, through the rule context's
+  expectation backend: a categorical summed exactly, a Gaussian's variance kept. With every other
+  input a point mass the message is exact, its log scale known up to the normaliser that
+  `LaplaceForm` computes. Towards `out` of a node that is a distribution, the message has its
+  support.
+
 ### Changed
 
 - ExpectationApproximations, DomainSets and Compat are dependencies; BayesBase 1.7 and

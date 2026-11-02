@@ -41,7 +41,8 @@ module DeltaMessagePassingRules
 using MessagePassingRulesBase, BayesBase, ExponentialFamily, Distributions
 using MessagePassingRulesBase: AbstractAlgorithm, Target, getnodefn
 using MessagePassingRulesApproximations: MessagePassingRulesApproximations, Unscented, Linearization, unscented_statistics, smoothRTS
-using MessagePassingRulesBase: NodeFunctionLogPdf
+using MessagePassingRulesBase: IndexedTarget, NodeFunctionLogPdf, nodefunction, rule_inputs, interfaces, interface_groups, sdtype, target_edge, target_index
+using BayesBase: FactorizedJoint, expectation, prepare_expectation
 using ExpectationApproximations: ExpectationApproximations
 using DomainSets: DomainSets
 using Compat: @compat
@@ -53,11 +54,12 @@ include("node.jl")
 include("approximate.jl")
 include("rules/gaussian.jl")
 include("cvi_projection.jl")
+include("expectation_fallback.jl")
 include("laplace_form.jl")
 
 const EA = ExpectationApproximations
 
 # Universal inference: public, not exported
-@compat public LaplaceForm, laplace_form
+@compat public ExpectationRuleFallback, LaplaceForm, laplace_form
 
 end
