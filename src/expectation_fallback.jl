@@ -139,7 +139,8 @@ flatten_slots(slots::Tuple) = foldl((acc, slot) -> (acc..., flatten_slots(slot).
 flatten_slots(slot) = (slot,)
 
 # The message as a density: with the support of the node's distribution towards `out`, read where
-# the node is a distribution of the inputs' means; an unnormalised log-density supported
+# the node is a distribution of the inputs' means that says its support; an unnormalised
+# log-density supported
 # everywhere otherwise, whose domain a product takes from its other factors
 function outbound_density(node, target, inputs, density)
     domain = outbound_domain(node, target, inputs)
@@ -155,7 +156,14 @@ function outbound_domain(node::Type{<:ContinuousUnivariateDistribution}, ::Targe
     parameters = Iterators.drop(interfaces(node), 1)
     all(name -> haskey(values, name), parameters) || return nothing
     distribution = node(map(name -> mean(values[name]), Tuple(parameters))...)
-    return DomainSets.Interval(minimum(distribution), maximum(distribution))
+    # the support is information a distribution may not give: Distributions has no default
+    lower, upper = try
+        minimum(distribution), maximum(distribution)
+    catch error
+        error isa MethodError || rethrow()
+        return nothing
+    end
+    return DomainSets.Interval(lower, upper)
 end
 
 # A deterministic node's messages, through its function of the inputs in order: towards `out` the

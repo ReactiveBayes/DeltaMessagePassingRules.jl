@@ -26,6 +26,13 @@
     Base.maximum(::Shape) = Inf
     @define_factor_node(node = Shape, type = Stochastic, interfaces = [:out, :α, :θ])
 
+    # `out ~ Unbounded(m)`: a distribution that does not say its support
+    struct Unbounded{M} <: ContinuousUnivariateDistribution
+        m::M
+    end
+    Distributions.logpdf(d::Unbounded, x::Real) = -(x - d.m)^2 / 2
+    @define_factor_node(node = Unbounded, type = Stochastic, interfaces = [:out, :m])
+
     # `out ~ Mix(z, means...)`: a unit-variance Gaussian around the `z`-th mean; a node with
     # groups opts in to the fallbacks by defining its node function
     struct Mix{Z, M}
@@ -87,6 +94,9 @@ end
     toy, _ = unwrap_fallback(N.message(N.Toy, Target(:out), RuleArgs(q = (a = PointMass(2.0), b = PointMass(0.5)))))
     @test EA.domain(toy) === nothing
     @test logpdf(toy, 1.0) ≈ logpdf(N.Toy(2.0, 0.5), 1.0)
+    # Nor does a distribution that does not say its support.
+    unbounded, _ = unwrap_fallback(N.message(N.Unbounded, Target(:out), RuleArgs(q = (m = PointMass(1.0),))))
+    @test EA.domain(unbounded) === nothing && logpdf(unbounded, 0.5) ≈ -0.125
 end
 
 @testitem "ExpectationRuleFallback: a categorical input is summed exactly" tags = [:universal] setup = [UniversalNodes] begin
