@@ -73,7 +73,7 @@ end
     ExpectedLogDensity(f, prepared, slots)
 
 `x ↦ E[f(; …)]`, the keyword log-density `f` of a node in expectation over its inputs, prepared
-once (`prepared`), at `x` for the target. `slots` names each keyword argument of `f` and where its
+once (`prepared`, `nothing` for none), at `x` for the target. `slots` names each keyword argument of `f` and where its
 value comes from: the position of an input in the prepared expectation, [`Free`](@ref) for the
 target, or a tuple of either for a group.
 """
@@ -85,9 +85,15 @@ end
 ExpectedLogDensity(f::F, prepared::P, slots::NamedTuple{N, S}) where {F, P, N, S} = ExpectedLogDensity{N, slots, F, P}(f, prepared)
 
 (density::ExpectedLogDensity{N, S})(x) where {N, S} = expectation(density.prepared, NodeIntegrand{N, S}(density.f, x))
+# no input to take the expectation over
+(density::ExpectedLogDensity{N, S, F, Nothing})(x) where {N, S, F} = NodeIntegrand{N, S}(density.f, x)(())
 
-"`Free()`: the slot of the target in a node's keyword arguments, filled by the point evaluated."
-struct Free end
+# The slot of the target in a node's keyword arguments, filled by the point evaluated, `Free()`,
+# or by its `I`-th component, `Free{I}()`, for a joint; and the `J`-th member of the `I`-th input,
+# a joint, `Component{I, J}()`
+struct Free{I} end
+Free() = Free{0}()
+struct Component{I, J} end
 
 # The node's log-density at the inputs `v`, a tuple, and the target `x`
 struct NodeIntegrand{N, S, F, X}
@@ -100,7 +106,9 @@ NodeIntegrand{N, S}(f::F, x::X) where {N, S, F, X} = NodeIntegrand{N, S, F, X}(f
 (integrand::NodeIntegrand{N, S})(v) where {N, S} = integrand.f(; map(slot -> fill_slot(slot, v, integrand.x), S)...)
 
 fill_slot(slot::Int, v, x) = v[slot]
-fill_slot(::Free, v, x) = x
+fill_slot(::Free{0}, v, x) = x
+fill_slot(::Free{I}, v, x) where {I} = x[I]
+fill_slot(::Component{I, J}, v, x) where {I, J} = v[I][J]
 fill_slot(slots::Tuple, v, x) = map(slot -> fill_slot(slot, v, x), slots)
 
 # Where each keyword of the node's log-density comes from, given the keys of the inputs and the
@@ -211,8 +219,8 @@ insert_at(others::Tuple, k, x) = (others[1:(k - 1)]..., x, others[k:end]...)
 
 # The inputs of a deterministic node in its function's order, the target among them: the
 # interfaces after `out`, a group by its members' indices
-function input_order(node, keys, target)
-    all_keys = (keys..., target_key(target))
+function input_order(node, keys, target = nothing)
+    all_keys = isnothing(target) ? keys : (keys..., target_key(target))
     order = Any[]
     for name in Iterators.drop(interfaces(node), 1)
         if name in interface_groups(node)

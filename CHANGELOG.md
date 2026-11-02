@@ -24,6 +24,12 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   method: towards `out` the moment-matched pushforward of the inputs' messages, a Gaussian, or a
   point mass for point masses; towards an input the message on `out` pulled back through the
   function, in expectation over the other inputs, exact for a single one.
+- `ExpectationRuleFallback` for joint marginals and average energies, so the Bethe free energy is
+  available on the universal path under belief propagation as well as mean field: a cluster's
+  joint is the joint Laplace approximation of the node's log-density times its members' messages,
+  in the product of their domains, and the joint over a deterministic node's inputs that of the
+  message on `out` at the function times theirs; an average energy is `-E_q[log f]` under the
+  clusters' marginals, joints and groups included. Members of a joint are numbers.
 
 ### Changed
 
