@@ -6,6 +6,19 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
 
 ## [Unreleased]
 
+### Added
+
+- `LaplaceForm` and its projection `laplace_form(form, density, previous = nothing)`, the form
+  every belief takes in universal inference (U4): a closed form passes, a finite discrete product
+  is normalised exactly, and any other product is Laplace's approximation in the unconstrained
+  coordinates of its domain, through ExpectationApproximations. It reports the log of the
+  product's normaliser, and starts at the previous mode when given one.
+
+### Changed
+
+- ExpectationApproximations, DomainSets and Compat are dependencies; BayesBase 1.7 and
+  MessagePassingRulesBase 1.2 are required.
+
 ## [1.0.0] - 2026-10-12
 
 The first release: the Delta node, a deterministic function of its inputs, under linearisation, the unscented transform or CVI projection, developed in the
