@@ -39,6 +39,10 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   do not converge, as it is: `laplace_form` reports the method `:unprojected`. `:project`, the
   default, keeps the Gaussian at the last iterate. A message is better left, so that an exact rule
   downstream is not fed a Gaussian that says almost nothing.
+- `LaplaceForm`'s Gaussian on the real line is ExponentialFamily's, `NormalMeanVariance` or
+  `MvNormalMeanCovariance`, the types the rules of the Gaussian nodes take: the average energy of
+  `m ~ MvNormalMeanCovariance(μ, Σ)` under a Laplace posterior of `m` failed on Distributions'
+  `MvNormal`, which has no `ndims`.
 
 ### Changed
 

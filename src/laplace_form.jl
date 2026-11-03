@@ -9,8 +9,9 @@ every belief takes, by [`laplace_form`](@ref):
   changes;
 - a product with a finite discrete factor, a categorical, is normalised exactly over its support;
 - any other product is Laplace's approximation in the unconstrained coordinates of its domain:
-  a Gaussian on the real line, and an `ExpectationApproximations.TransformedGaussian` on any
-  other domain. The domain is that of the first factor that has one, a prior's support.
+  on the real line a Gaussian of ExponentialFamily, `NormalMeanVariance` or
+  `MvNormalMeanCovariance`, the types the rules of the Gaussian nodes take, and an
+  `ExpectationApproximations.TransformedGaussian` on any other domain. The domain is that of the first factor that has one, a prior's support.
 
 Each projection reports the log of the product's normaliser, Laplace's evidence approximation,
 which completes the log scale of a message whose normaliser was unknown.
@@ -100,8 +101,14 @@ function continuous_form(form, density, parts, previous)
     x0 = start_point(logp, domain, parts, previous)
     result = EA.laplace(logp, x0, domain; tol = form.tol, maxiters = form.maxiters)
     result.converged || form.nomode === :project || return (; distribution = density, logZ = nothing, mode = previous, converged = false, result.iterations, method = :unprojected)
-    return (; result.distribution, result.logZ, result.mode, result.converged, result.iterations, method = :laplace)
+    return (; distribution = exponential_family_gaussian(result.distribution), result.logZ, result.mode, result.converged, result.iterations, method = :laplace)
 end
+
+# Laplace's Gaussian on the real line in ExponentialFamily's types, which the rules of the Gaussian
+# nodes take; a Gaussian pushed forward onto another domain stays as it is
+exponential_family_gaussian(distribution::Normal) = NormalMeanVariance(mean(distribution), var(distribution))
+exponential_family_gaussian(distribution::MvNormal) = MvNormalMeanCovariance(mean(distribution), cov(distribution))
+exponential_family_gaussian(distribution) = distribution
 
 # Where Laplace's iterations start: the previous mode, the mean of a factor, or the middle of the
 # domain, the first of them where the log-density is finite

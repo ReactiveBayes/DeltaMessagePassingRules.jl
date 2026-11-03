@@ -36,6 +36,7 @@ end
     # The real line: a Gaussian prior and a Gaussian likelihood, where Laplace is exact.
     product = ProductOf(NormalMeanVariance(0.0, 1.0), NodeFunctionLogPdf(x -> -(2.0 - x)^2 / (2 * 0.5)))
     result = laplace_form(LaplaceForm(), product)
+    @test result.distribution isa NormalMeanVariance
     @test mean(result.distribution) ≈ 4 / 3 && var(result.distribution) ≈ 1 / 3
     @test result.logZ ≈ EA.laplace(x -> logpdf(product, x), 0.0).logZ
     @test result.converged && result.method === :laplace && result.iterations > 0
@@ -61,6 +62,7 @@ end
     prior = MvNormalMeanCovariance([0.0, 0.0], [1.0 0.0; 0.0 1.0])
     product = ProductOf(prior, NodeFunctionLogPdf(x -> -sum(abs2, x .- [1.0, -1.0]) / 2))
     result = laplace_form(LaplaceForm(), product)
+    @test result.distribution isa MvNormalMeanCovariance
     @test mean(result.distribution) ≈ [0.5, -0.5] && cov(result.distribution) ≈ [0.5 0.0; 0.0 0.5]
 end
 
