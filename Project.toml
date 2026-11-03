@@ -15,12 +15,12 @@ MessagePassingRulesBase = "4a5b64c7-30c9-4471-82f2-bbe8464b157d"
 [weakdeps]
 ExponentialFamilyProjection = "17f509fa-9a96-44ba-99b2-1c5f01f0931b"
 
-# TEMPORARY: the branches of U4 (universal inference), until they are released; the paths are
-# switched to the pushed branches before anything is pushed.
+# TEMPORARY: the branches of U4 (universal inference), until they are released.
+# ExpectationApproximations is private for now: its SSH URL needs access to it.
 [sources]
 BayesBase = {url = "https://github.com/ReactiveBayes/BayesBase.jl", rev = "universal-inference"}
-ExpectationApproximations = {path = "../ExpectationApproximations.jl"}
-MessagePassingRulesBase = {path = "../MessagePassingRulesBase.jl"}
+ExpectationApproximations = {url = "git@github.com:ReactiveBayes/ExpectationApproximations.jl.git", rev = "universal-inference"}
+MessagePassingRulesBase = {url = "https://github.com/ReactiveBayes/MessagePassingRulesBase.jl", rev = "universal-inference"}
 
 [extensions]
 DeltaMessagePassingRulesProjectionExt = "ExponentialFamilyProjection"
