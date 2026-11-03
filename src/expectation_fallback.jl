@@ -22,6 +22,11 @@ a point mass when every input is one. Towards an input it is the message on `out
 through the function, `x ↦ E[log m_out(f(…, x, …))]` over the other inputs: exact for a single
 input, whose log scale is then the message on `out`'s up to the normaliser.
 
+A cluster's joint marginal is the joint Laplace approximation of the node's log-density times the
+members' messages, ExponentialFamily's Gaussian on the real line, and the fallback says how it
+went: `with_outcome(joint, (method = :joint_laplace, converged, iterations))`, which an engine
+hands on to its events and an inference report reads.
+
 Unlike [`NodeFunctionRuleFallback`](@extref MessagePassingRulesBase.NodeFunctionRuleFallback),
 which plugs in the inputs' means, the message keeps their spread: a categorical's probabilities and
 a Gaussian's variance.

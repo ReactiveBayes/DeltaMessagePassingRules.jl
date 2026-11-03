@@ -45,12 +45,15 @@ is_number_density(density) = density isa Distribution{Univariate}
 
 incoming_logpdf(incoming, u) = sum(i -> logpdf(incoming[i], u[i]), eachindex(incoming))
 
-# Laplace in the product of the members' domains, from their messages' means
+# Laplace in the product of the members' domains, from their messages' means: on the real line
+# ExponentialFamily's Gaussian, as `LaplaceForm` gives, with how the iterations went
 function joint_laplace(logp, incoming)
     domains = map(density -> something(EA.domain(density), EA.RealLine()), incoming)
     domain = all(d -> d isa EA.RealLine, domains) ? EA.RealLine() : EA.Componentwise(domains...)
     x0 = [mean(density) for density in incoming]
-    return EA.laplace(logp, x0, domain).distribution
+    result = EA.laplace(logp, x0, domain)
+    outcome = (method = :joint_laplace, converged = result.converged, iterations = result.iterations)
+    return with_outcome(exponential_family_gaussian(result.distribution), outcome)
 end
 
 # The keywords of a node's log-density for a joint of `members`: the `i`-th member is the `i`-th

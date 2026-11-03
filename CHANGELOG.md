@@ -43,6 +43,9 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   `MvNormalMeanCovariance`, the types the rules of the Gaussian nodes take: the average energy of
   `m ~ MvNormalMeanCovariance(μ, Σ)` under a Laplace posterior of `m` failed on Distributions'
   `MvNormal`, which has no `ndims`.
+- The joint Laplace approximation of a cluster is ExponentialFamily's Gaussian on the real line
+  too, and `ExpectationRuleFallback` says how it went, `with_outcome(joint, (method =
+  :joint_laplace, converged, iterations))`, for the engine's events and an inference report.
 
 ### Changed
 

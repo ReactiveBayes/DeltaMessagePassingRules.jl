@@ -11,18 +11,21 @@
 
     # N(out; a, b) N(out; 1, 0.5) N(a; 0, 2) with b = 0.5 is Gaussian, so Laplace is exact.
     args = RuleArgs(m = (out = NormalMeanVariance(1.0, 0.5), a = NormalMeanVariance(0.0, 2.0)), q = (b = PointMass(0.5),))
-    joint = N.message(N.Toy, ClusterTarget((:out, :a)), args)
+    joint, outcome = MessagePassingRulesBase.unwrap_outcome(N.message(N.Toy, ClusterTarget((:out, :a)), args))
     b = 0.5
     Λ = [1 / b + 2 -1 / b; -1 / b 1 / b + 1 / 2]
+    @test joint isa MvNormalMeanCovariance
     @test mean(joint) ≈ Λ \ [2.0, 0.0]
     @test cov(joint) ≈ inv(Λ)
+    # how the joint Laplace went, for the engine's events
+    @test outcome.method === :joint_laplace && outcome.converged && outcome.iterations > 0
 
     # Members on the half-line: the Laplace approximation in log coordinates, as by hand.
     args = RuleArgs(m = (out = Gamma(3.0, 1.0), θ = Gamma(2.0, 2.0)), q = (α = PointMass(2.0),))
-    joint = N.message(N.Shape, ClusterTarget((:out, :θ)), args)
+    joint, outcome = MessagePassingRulesBase.unwrap_outcome(N.message(N.Shape, ClusterTarget((:out, :θ)), args))
     logp(x) = logpdf(Gamma(2.0, x[2]), x[1]) + logpdf(Gamma(3.0, 1.0), x[1]) + logpdf(Gamma(2.0, 2.0), x[2])
     reference = EA.laplace(logp, [3.0, 4.0], EA.Componentwise(EA.Positive(), EA.Positive()))
-    @test joint isa EA.TransformedGaussian
+    @test joint isa EA.TransformedGaussian && outcome.converged
     @test mean(joint.gaussian) ≈ mean(reference.distribution.gaussian) && cov(joint.gaussian) ≈ cov(reference.distribution.gaussian)
     # Its entropy is defined, for the free energy.
     @test isfinite(entropy(joint))
@@ -40,7 +43,8 @@ end
     # N(x + y; 1, 0.5) N(x; 0, 1) N(y; 0, 2) is Gaussian: precision [3 2; 2 2.5], linear term [2, 2].
     sum2(x, y) = x + y
     args = RuleArgs(m = (out = NormalMeanVariance(1.0, 0.5), in = (NormalMeanVariance(0.0, 1.0), NormalMeanVariance(0.0, 2.0))))
-    joint = D.message(sum2, ClusterTarget((:in,)), args)
+    joint, outcome = MessagePassingRulesBase.unwrap_outcome(D.message(sum2, ClusterTarget((:in,)), args))
+    @test joint isa MvNormalMeanCovariance && outcome.method === :joint_laplace && outcome.converged
     Λ = [3.0 2.0; 2.0 2.5]
     @test mean(joint) ≈ Λ \ [2.0, 2.0]
     @test cov(joint) ≈ inv(Λ)
