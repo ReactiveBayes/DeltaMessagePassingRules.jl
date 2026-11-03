@@ -8,6 +8,7 @@
     for d in (NormalMeanVariance(1.0, 2.0), Gamma(2.0, 1.0), Categorical([0.5, 0.5]), PointMass(1.0), missing)
         result = laplace_form(LaplaceForm(), d)
         @test result.distribution === d && result.logZ === nothing
+        @test result.method === :closed_form
     end
 end
 
@@ -22,6 +23,7 @@ end
         @test result.distribution isa Categorical
         @test probs(result.distribution) ≈ weights ./ sum(weights)
         @test result.logZ ≈ log(sum(weights))
+        @test result.method === :discrete
     end
 end
 
@@ -36,7 +38,7 @@ end
     result = laplace_form(LaplaceForm(), product)
     @test mean(result.distribution) ≈ 4 / 3 && var(result.distribution) ≈ 1 / 3
     @test result.logZ ≈ EA.laplace(x -> logpdf(product, x), 0.0).logZ
-    @test result.converged
+    @test result.converged && result.method === :laplace && result.iterations > 0
 
     # The half-line: Gamma(2, 1) times x³e⁻²ˣ is Gamma(5, rate 3), in log coordinates
     # N(log(5/3), 1/5).
@@ -76,6 +78,7 @@ end
     # A point mass among the factors is the product; its normaliser is the others at the point.
     result = laplace_form(LaplaceForm(), ProductOf(likelihood, PointMass(1.5)))
     @test result.distribution === PointMass(1.5) && result.logZ ≈ -0.125
+    @test result.method === :point_mass
 end
 
 @testitem "laplace_form: where it starts, and the warm start" tags = [:universal] begin

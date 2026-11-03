@@ -30,10 +30,12 @@ LaplaceForm(; tol::Real = 1.0e-10, maxiters::Integer = 100) = LaplaceForm(tol, I
 
 """
     laplace_form(form::LaplaceForm, density, previous = nothing)
-        -> (; distribution, logZ, mode, converged, iterations)
+        -> (; distribution, logZ, mode, converged, iterations, method)
 
 The projection of [`LaplaceForm`](@ref): `distribution` is the projected `density`, and `logZ` the
-log of the normaliser of `density`, `nothing` for a closed form that passes. `previous`, the mode
+log of the normaliser of `density`, `nothing` for a closed form that passes. `method` says how it
+was projected: `:closed_form` (passed as it is), `:point_mass`, `:discrete` (normalised exactly)
+or `:laplace`, whose Newton iterations `converged` in `iterations` steps. `previous`, the mode
 of an earlier projection of the same variable, is where Laplace's iterations start; without one
 they start at the mean of the first factor that has one, or in the middle of the domain. A product
 that does not tell its dimension, such as a likelihood's message alone, is taken to be of a number.
@@ -43,7 +45,7 @@ An `ArgumentError` when the product has no factor that tells its dimension, a di
 log-density with a domain, no `previous` mode, and does not take a number.
 """
 function laplace_form(form::LaplaceForm, density, previous = nothing)
-    is_closed_form(density) && return (; distribution = density, logZ = nothing, mode = previous, converged = true, iterations = 0)
+    is_closed_form(density) && return (; distribution = density, logZ = nothing, mode = previous, converged = true, iterations = 0, method = :closed_form)
     parts = factors(density)
     point = findfirst(part -> part isa PointMass, parts)
     isnothing(point) || return point_mass_form(density, parts, parts[point])
@@ -64,7 +66,7 @@ factors(density) = (density,)
 function point_mass_form(density, parts, point)
     x = mean(point)
     logZ = sum(part -> part isa PointMass ? 0.0 : logpdf(part, x), parts)
-    return (; distribution = point, logZ, mode = x, converged = true, iterations = 0)
+    return (; distribution = point, logZ, mode = x, converged = true, iterations = 0, method = :point_mass)
 end
 
 finite_support(part::DiscreteUnivariateDistribution) = isfinite(minimum(part)) && isfinite(maximum(part)) ? support(part) : nothing
@@ -76,7 +78,7 @@ function discrete_form(density, values)
     logZ = shift + log(sum(w -> exp(w - shift), logweights))
     probabilities = exp.(logweights .- logZ)
     distribution = values == 1:length(values) ? Categorical(probabilities) : DiscreteNonParametric(collect(values), probabilities)
-    return (; distribution, logZ, mode = values[argmax(probabilities)], converged = true, iterations = 0)
+    return (; distribution, logZ, mode = values[argmax(probabilities)], converged = true, iterations = 0, method = :discrete)
 end
 
 function continuous_form(form, density, parts, previous)
@@ -85,7 +87,7 @@ function continuous_form(form, density, parts, previous)
     logp = x -> all(part -> insupport(part, x), parts) ? logpdf(density, x) : -Inf
     x0 = start_point(logp, domain, parts, previous)
     result = EA.laplace(logp, x0, domain; tol = form.tol, maxiters = form.maxiters)
-    return (; result.distribution, result.logZ, result.mode, result.converged, result.iterations)
+    return (; result.distribution, result.logZ, result.mode, result.converged, result.iterations, method = :laplace)
 end
 
 # Where Laplace's iterations start: the previous mode, the mean of a factor, or the middle of the

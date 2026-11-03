@@ -31,6 +31,11 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   message on `out` at the function times theirs; an average energy is `-E_q[log f]` under the
   clusters' marginals, joints and groups included. Members of a joint are numbers.
 
+- `laplace_form` reports how it projected, as `method`: `:closed_form`, `:point_mass`, `:discrete`
+  or `:laplace`, the record an approximation report reads (U5).
+- The hint of a Delta node without an approximation method names RxInfer's
+  `fallback = LaplaceApproximation()`, which approximates every node without rules.
+
 ### Changed
 
 - ExpectationApproximations, DomainSets and Compat are dependencies; BayesBase 1.7 and
