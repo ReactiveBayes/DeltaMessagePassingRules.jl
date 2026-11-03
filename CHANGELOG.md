@@ -35,6 +35,12 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   or `:laplace`, the record an approximation report reads (U5).
 - The hint of a Delta node without an approximation method names RxInfer's
   `fallback = LaplaceApproximation()`, which approximates every node without rules.
+- `VariationalForm` and its projection `variational_form`, `LaplaceForm`'s sibling (U7b): the
+  Gaussian that minimises `KL(q ‖ p)` of a belief with no closed form, in the unconstrained
+  coordinates of its domain, through ExpectationApproximations' `gaussian_variational`, with the
+  evidence lower bound as the log of the normaliser. The fixed point of conjugate-computation
+  variational inference; under mean field, the optimal Gaussian. Closed forms, point masses and
+  finite discrete products are projected as by `LaplaceForm`, and `nomode` works the same way.
 - `LaplaceForm(nomode = :leave)` leaves a product it finds no mode for, where Newton's iterations
   do not converge, as it is: `laplace_form` reports the method `:unprojected`. `:project`, the
   default, keeps the Gaussian at the last iterate. A message is better left, so that an exact rule

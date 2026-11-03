@@ -57,10 +57,11 @@ include("cvi_projection.jl")
 include("expectation_fallback.jl")
 include("expectation_joint.jl")
 include("laplace_form.jl")
+include("variational_form.jl")
 
 const EA = ExpectationApproximations
 
 # Universal inference: public, not exported
-@compat public ExpectationRuleFallback, LaplaceForm, laplace_form
+@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form
 
 end

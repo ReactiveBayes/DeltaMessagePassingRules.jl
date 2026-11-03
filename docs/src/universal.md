@@ -20,6 +20,9 @@ unconstrained coordinates of each variable's domain.
   first factor that has one; a finite discrete product is normalised exactly, and a closed form
   passes. The projection reports the log of the product's normaliser, which completes the log
   scale of a message whose normaliser was unknown.
+- [`VariationalForm`](@ref), in `LaplaceForm`'s place: the Gaussian that minimises `KL(q ‖ p)` of
+  the same product, the fixed point of conjugate-computation variational inference (CVI), with the
+  evidence lower bound as the log of the normaliser. Under mean field it is the optimal Gaussian.
 
 In RxInfer both are given once, for every node and variable:
 
@@ -84,9 +87,19 @@ result = DeltaMessagePassingRules.laplace_form(DeltaMessagePassingRules.LaplaceF
 result.distribution.domain, mean(result.distribution.gaussian), result.logZ
 ```
 
+The variational Gaussian of the same product, in the same coordinates: its bound is below
+Laplace's evidence approximation here, and its location differs from the mode.
+
+```@example universal
+variational = DeltaMessagePassingRules.variational_form(DeltaMessagePassingRules.VariationalForm(), product)
+variational.method, mean(variational.distribution.gaussian), variational.logZ
+```
+
 ```@docs
 ExpectationRuleFallback
 LaplaceForm
 DeltaMessagePassingRules.laplace_form
+VariationalForm
+DeltaMessagePassingRules.variational_form
 DeltaMessagePassingRules.ExpectedLogDensity
 ```

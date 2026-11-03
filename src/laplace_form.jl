@@ -57,7 +57,11 @@ that does not tell its dimension, such as a likelihood's message alone, is taken
 An `ArgumentError` when the product has no factor that tells its dimension, a distribution or a
 log-density with a domain, no `previous` mode, and does not take a number.
 """
-function laplace_form(form::LaplaceForm, density, previous = nothing)
+laplace_form(form::LaplaceForm, density, previous = nothing) = project_form(form, density, previous)
+
+# The projection of a form: closed forms, point masses and finite discrete products alike, any
+# other product by the form's own method, `continuous_form`
+function project_form(form, density, previous)
     is_closed_form(density) && return (; distribution = density, logZ = nothing, mode = previous, converged = true, iterations = 0, method = :closed_form)
     parts = factors(density)
     point = findfirst(part -> part isa PointMass, parts)
@@ -94,7 +98,7 @@ function discrete_form(density, values)
     return (; distribution, logZ, mode = values[argmax(probabilities)], converged = true, iterations = 0, method = :discrete)
 end
 
-function continuous_form(form, density, parts, previous)
+function continuous_form(form::LaplaceForm, density, parts, previous)
     domain = something(EA.domain(density), EA.RealLine())
     # -Inf outside the support of a factor, so that a Newton step leaving it is shortened
     logp = x -> all(part -> insupport(part, x), parts) ? logpdf(density, x) : -Inf
