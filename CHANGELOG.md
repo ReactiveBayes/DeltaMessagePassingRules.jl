@@ -35,6 +35,10 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   or `:laplace`, the record an approximation report reads (U5).
 - The hint of a Delta node without an approximation method names RxInfer's
   `fallback = LaplaceApproximation()`, which approximates every node without rules.
+- `LaplaceForm(nomode = :leave)` leaves a product it finds no mode for, where Newton's iterations
+  do not converge, as it is: `laplace_form` reports the method `:unprojected`. `:project`, the
+  default, keeps the Gaussian at the last iterate. A message is better left, so that an exact rule
+  downstream is not fed a Gaussian that says almost nothing.
 
 ### Changed
 

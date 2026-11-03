@@ -126,3 +126,24 @@ end
     result = laplace_form(LaplaceForm(), ProductOf(HalfLine(), NodeFunctionLogPdf(x -> -(x - 0.05)^2 / 0.02)), 1.0)
     @test result.converged && result.mode > 0
 end
+
+@testitem "laplace_form: a product with no mode" tags = [:universal] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily
+    using MessagePassingRulesBase: NodeFunctionLogPdf
+    import DeltaMessagePassingRules: LaplaceForm, laplace_form
+
+    # A Bernoulli observation of 1 pulled back through the logistic, log σ(η), rises without
+    # bound: Newton's iterations run off, and the floored curvature gives a Gaussian that says
+    # almost nothing.
+    likelihood = NodeFunctionLogPdf(η -> -log1p(exp(-η)))
+    kept = laplace_form(LaplaceForm(), likelihood)
+    @test !kept.converged && kept.method === :laplace && var(kept.distribution) > 1.0e6
+    left = laplace_form(LaplaceForm(nomode = :leave), likelihood)
+    @test !left.converged && left.method === :unprojected && left.distribution === likelihood && isnothing(left.logZ)
+
+    # With a prior the product has a mode, and `:leave` projects it as `:project` does.
+    product = ProductOf(NormalMeanVariance(0.0, 4.0), likelihood)
+    @test laplace_form(LaplaceForm(nomode = :leave), product).distribution == laplace_form(LaplaceForm(), product).distribution
+    @test LaplaceForm(1.0e-8, 50) === LaplaceForm(tol = 1.0e-8, maxiters = 50, nomode = :project)
+    @test_throws "`nomode` is `:project` or `:leave`" LaplaceForm(nomode = :drop)
+end

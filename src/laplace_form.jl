@@ -1,5 +1,5 @@
 """
-    LaplaceForm(; tol = 1e-10, maxiters = 100)
+    LaplaceForm(; tol = 1e-10, maxiters = 100, nomode = :project)
 
 A form constraint for universal inference: the projection of a belief with no closed form, such
 as the product of a prior and the messages of [`ExpectationRuleFallback`](@ref), onto the form
@@ -20,13 +20,24 @@ RxInfer through its option `default_form_constraint = LaplaceForm()`.
 
 # Keywords
 - `tol`, `maxiters`: of the Newton iterations of `ExpectationApproximations.laplace`.
+- `nomode`: what a product becomes when Newton's iterations do not converge, so that Laplace
+  found no mode, as for a likelihood's message alone that rises without bound. `:project`, the
+  default, keeps the Gaussian at the last iterate, whose curvature is floored; `:leave` leaves the
+  product as it is, unprojected. A message is better left: a Gaussian Laplace did not find would
+  feed an exact rule downstream, where the product unprojected goes to the rule fallback. RxInfer's
+  `LaplaceApproximation` projects marginals with `:project` and messages with `:leave`.
 """
 struct LaplaceForm{T <: Real}
     tol::T
     maxiters::Int
+    nomode::Symbol
+    function LaplaceForm(tol::T, maxiters::Integer, nomode::Symbol = :project) where {T <: Real}
+        nomode ∈ (:project, :leave) || throw(ArgumentError("`nomode` is `:project` or `:leave`, got `:$(nomode)`"))
+        return new{T}(tol, Int(maxiters), nomode)
+    end
 end
 
-LaplaceForm(; tol::Real = 1.0e-10, maxiters::Integer = 100) = LaplaceForm(tol, Int(maxiters))
+LaplaceForm(; tol::Real = 1.0e-10, maxiters::Integer = 100, nomode::Symbol = :project) = LaplaceForm(tol, maxiters, nomode)
 
 """
     laplace_form(form::LaplaceForm, density, previous = nothing)
@@ -35,7 +46,8 @@ LaplaceForm(; tol::Real = 1.0e-10, maxiters::Integer = 100) = LaplaceForm(tol, I
 The projection of [`LaplaceForm`](@ref): `distribution` is the projected `density`, and `logZ` the
 log of the normaliser of `density`, `nothing` for a closed form that passes. `method` says how it
 was projected: `:closed_form` (passed as it is), `:point_mass`, `:discrete` (normalised exactly)
-or `:laplace`, whose Newton iterations `converged` in `iterations` steps. `previous`, the mode
+or `:laplace`, whose Newton iterations `converged` in `iterations` steps; or `:unprojected`, a
+product Laplace found no mode for, left as it is under `nomode = :leave`. `previous`, the mode
 of an earlier projection of the same variable, is where Laplace's iterations start; without one
 they start at the mean of the first factor that has one, or in the middle of the domain. A product
 that does not tell its dimension, such as a likelihood's message alone, is taken to be of a number.
@@ -87,6 +99,7 @@ function continuous_form(form, density, parts, previous)
     logp = x -> all(part -> insupport(part, x), parts) ? logpdf(density, x) : -Inf
     x0 = start_point(logp, domain, parts, previous)
     result = EA.laplace(logp, x0, domain; tol = form.tol, maxiters = form.maxiters)
+    result.converged || form.nomode === :project || return (; distribution = density, logZ = nothing, mode = previous, converged = false, result.iterations, method = :unprojected)
     return (; result.distribution, result.logZ, result.mode, result.converged, result.iterations, method = :laplace)
 end
 
