@@ -5,28 +5,30 @@
 
 function MessagePassingRulesBase.call_fallback(::ExpectationRuleFallback, node, target::ClusterTarget, algorithm, ctx, args)
     members = cluster_members(target)
-    sdtype(node) isa Deterministic && return deterministic_joint(node, members, ctx, args)
-    return stochastic_joint(node, members, ctx, args)
+    sdtype(node) isa Deterministic && return deterministic_joint(node, members, algorithm, ctx, args)
+    return stochastic_joint(node, members, algorithm, ctx, args)
 end
 
-function stochastic_joint(node, members, ctx, args)
+function stochastic_joint(node, members, algorithm, ctx, args)
     applicable(nodefunction, node) || return nothing
     all(member -> member isa Symbol, members) || return nothing
     messages = Dict(rule_inputs(node, args.m))
     all(member -> haskey(messages, member), members) || return nothing
     incoming = map(member -> messages[member], members)
-    all(is_number_density, incoming) || return nothing
+    is_cluster_input(incoming) || return nothing
     others = rule_inputs(node, args.q)
     slots = joint_slots(node, members, map(first, others))
     isnothing(slots) && return nothing
     prepared = isempty(others) ? nothing : prepare_expectation(expectation_backend(ctx), FactorizedJoint(map(last, others)))
     logf = ExpectedLogDensity(nodefunction(node), prepared, slots)
-    return joint_laplace(u -> logf(u) + incoming_logpdf(incoming, u), incoming)
+    # the node's own message towards a member, from the others' messages and the marginals
+    own(i) = own_message(node, members[i], algorithm, ctx, pairs_except(members, incoming, i), Tuple(others))
+    return cluster_laplace(u -> logf(u) + incoming_logpdf(incoming, u), members, incoming, own)
 end
 
 # The joint over a deterministic node's inputs: the message on out at the function, times the
 # inputs' messages
-function deterministic_joint(node, members, ctx, args)
+function deterministic_joint(node, members, algorithm, ctx, args)
     instance = ctx.node
     (isnothing(instance) || :out in members) && return nothing
     f = getnodefn(instance, Target(:out))
@@ -36,14 +38,60 @@ function deterministic_joint(node, members, ctx, args)
     order = input_order(node, Tuple(key for key in map(first, inputs) if key !== :out))
     isnothing(order) && return nothing
     incoming = map(key -> messages[key], order)
-    all(is_number_density, incoming) || return nothing
+    is_cluster_input(incoming) || return nothing
     outbound = messages[:out]
-    return joint_laplace(u -> logpdf(outbound, f(u...)) + incoming_logpdf(incoming, u), incoming)
+    own(i) = isempty(interface_groups(node)) ?
+        own_message(node, order[i], algorithm, ctx, ((:out => outbound), pairs_except(Tuple(order), incoming, i)...), ()) : nothing
+    return cluster_laplace(u -> logpdf(outbound, f(u...)) + incoming_logpdf(incoming, u), Tuple(order), incoming, own)
 end
 
 is_number_density(density) = density isa Distribution{Univariate}
 
-incoming_logpdf(incoming, u) = sum(i -> logpdf(incoming[i], u[i]), eachindex(incoming))
+# A member's message is a density on numbers, or a number, a point mass such as a constant or
+# data, and not every member is a number
+is_point(density) = density isa PointMass{<:Real}
+is_cluster_input(incoming) = all(d -> is_number_density(d) || is_point(d), incoming) && !all(is_point, incoming)
+
+# A point mass's log-density is zero at its point, which the joint takes
+incoming_logpdf(incoming, u) = sum(i -> is_point(incoming[i]) ? zero(eltype(u)) : logpdf(incoming[i], u[i]), eachindex(incoming))
+
+# The joint over the members that are not numbers, with the numbers plugged in; each number is a
+# block of its own in a `FactorizedCluster`, as the rules of a node with a known input give it.
+# One member left is its own marginal: its message times the node's message towards it, `own(i)`,
+# in closed form where the node has that rule and the product is closed, so that it agrees with
+# the member's marginal; the Laplace approximation otherwise, as that marginal takes it.
+function cluster_laplace(logp, members, incoming, own)
+    fixed = map(is_point, incoming)
+    any(fixed) || return joint_laplace(logp, incoming)
+    free = Tuple(i for i in eachindex(incoming) if !fixed[i])
+    point(v) = [fixed[i] ? oftype(first(v), mean(incoming[i])) : v[findfirst(isequal(i), free)] for i in eachindex(incoming)]
+    density = length(free) == 1 ? marginal_of_one(x -> logp(point([x])), incoming[only(free)], own(only(free))) :
+        joint_laplace(v -> logp(point(v)), map(i -> incoming[i], free))
+    joint, outcome = MessagePassingRulesBase.unwrap_outcome(density)
+    blocks = Pair{Tuple{Vararg{Symbol}}, Any}[]
+    for i in eachindex(incoming)
+        if fixed[i]
+            push!(blocks, (members[i],) => incoming[i])
+        elseif i == first(free)
+            push!(blocks, Tuple(members[j] for j in free) => joint)
+        end
+    end
+    cluster = FactorizedCluster(Val(Tuple(map(first, blocks))), Tuple(map(last, blocks)))
+    return with_outcome(cluster, outcome)
+end
+
+# A single member's marginal: its message times the node's, in closed form, or by Laplace in its
+# domain
+function marginal_of_one(logp, density, message)
+    if !isnothing(message)
+        product = prod(BayesBase.GenericProd(), density, message)
+        product isa Distribution{Univariate} && return with_outcome(product, (method = :closed_form,))
+    end
+    domain = something(EA.domain(density), EA.RealLine())
+    result = EA.laplace(logp, mean(density), domain)
+    outcome = (method = :joint_laplace, converged = result.converged, iterations = result.iterations)
+    return with_outcome(exponential_family_gaussian(result.distribution), outcome)
+end
 
 # Laplace in the product of the members' domains, from their messages' means: on the real line
 # ExponentialFamily's Gaussian, as `LaplaceForm` gives, with how the iterations went
@@ -102,4 +150,17 @@ function energy_slots(node, keys)
     end
     any(isnothing, slots) && return nothing
     return NamedTuple{Tuple(names)}(slots)
+end
+
+# The pairs `member => message` of every member but the `i`-th
+pairs_except(members, incoming, i) = Tuple(members[j] => incoming[j] for j in eachindex(incoming) if j != i)
+
+# The node's message towards `member` by its own rule, from the messages and marginals given as
+# `name => distribution` pairs; `nothing` where it has no such rule
+function own_message(node, member, algorithm, ctx, messages, marginals)
+    member isa Symbol || return nothing
+    args = RuleArgs(m = NamedTuple(messages), q = NamedTuple(marginals))
+    found = find_message_rule(node, Target(member), algorithm, args)
+    found isa RuleNotFound && return nothing
+    return getresult(message_passing_rule(node, Target(member), algorithm, args, ctx))
 end

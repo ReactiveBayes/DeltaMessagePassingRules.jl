@@ -71,3 +71,52 @@ end
     # An interface without a marginal: nothing to say.
     @test energy(RuleArgs(q = (out = PointMass(1.0), a = PointMass(0.0)))) === nothing
 end
+
+@testitem "ExpectationRuleFallback: a joint with a point mass among its members" tags = [:universal] setup = [UniversalNodes, DeltaContext] begin
+    using MessagePassingRulesBase, BayesBase, Distributions, ExponentialFamily
+    using MessagePassingRulesBase: RuleArgs, ClusterTarget, RuleContext, FactorizedCluster, call_fallback, unwrap_outcome
+    import ExpectationApproximations as EA
+    import DeltaMessagePassingRules: ExpectationRuleFallback
+    N = UniversalNodes
+
+    # `out := a * b`, a node with a rule towards `a` when `b` is known and one without
+    struct Scaled end
+    @define_factor_node(node = Scaled, type = Deterministic, interfaces = [:out, :a, :b])
+    @define_message_update_rule(
+        node = Scaled, target = :a, args = (m[:out]::Gamma, m[:b]::PointMass),
+        body = (args) -> Gamma(shape(args.m[:out]), scale(args.m[:out]) / mean(args.m[:b])),
+    )
+    struct Unruled end
+    @define_factor_node(node = Unruled, type = Deterministic, interfaces = [:out, :a, :b])
+    ctx = RuleContext(node = DeltaContext.FunctionNode(*), expectation = EA.EADefault())
+    joint(node, args) = unwrap_outcome(call_fallback(ExpectationRuleFallback(), node, ClusterTarget((:a, :b)), MessagePassingRulesBase.DefaultAlgorithm(), ctx, args))
+    args = RuleArgs(m = (out = Gamma(4.0, 2.0), a = Gamma(2.0, 1.0), b = PointMass(3.0)))
+
+    # The known member is a block of its own; the other is its marginal, its message times the
+    # node's own message towards it, exact as that marginal is
+    cluster, outcome = joint(Scaled, args)
+    @test cluster isa FactorizedCluster && MessagePassingRulesBase.cluster_blocks(cluster) == ((:a,), (:b,))
+    @test cluster[(:b,)] === PointMass(3.0)
+    exact = prod(GenericProd(), Gamma(2.0, 1.0), Gamma(4.0, 2.0 / 3.0))
+    @test mean(cluster[(:a,)]) ≈ mean(exact) && var(cluster[(:a,)]) ≈ var(exact)
+    @test outcome.method === :closed_form
+    @test isfinite(entropy(cluster[(:a,)]))
+
+    # Without the rule, the Laplace approximation in the member's domain, as its marginal takes it
+    cluster, outcome = joint(Unruled, args)
+    reference = EA.laplace(x -> logpdf(Gamma(4.0, 2.0), 3x) + logpdf(Gamma(2.0, 1.0), x), 2.0, EA.Positive())
+    @test cluster[(:a,)] isa EA.TransformedGaussian{Univariate}
+    @test mean(cluster[(:a,)].gaussian) ≈ mean(reference.distribution.gaussian)
+    @test var(cluster[(:a,)].gaussian) ≈ var(reference.distribution.gaussian)
+    @test outcome.method === :joint_laplace && outcome.converged
+
+    # A stochastic node: N(out; 0.2, 0.5) N(out; 1, 0.5) is N(0.6, 0.25), exact by Laplace
+    args = RuleArgs(m = (out = NormalMeanVariance(1.0, 0.5), a = PointMass(0.2)), q = (b = PointMass(0.5),))
+    cluster, outcome = unwrap_outcome(N.message(N.Toy, ClusterTarget((:out, :a)), args))
+    @test MessagePassingRulesBase.cluster_blocks(cluster) == ((:out,), (:a,))
+    @test mean(cluster[(:out,)]) ≈ 0.6 && var(cluster[(:out,)]) ≈ 0.25
+    @test cluster[(:a,)] === PointMass(0.2)
+
+    # Every member known: nothing to approximate, no answer
+    @test joint(Scaled, RuleArgs(m = (out = Gamma(4.0, 2.0), a = PointMass(1.0), b = PointMass(3.0)))) == (nothing, nothing)
+end

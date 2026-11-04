@@ -39,7 +39,7 @@ true
 module DeltaMessagePassingRules
 
 using MessagePassingRulesBase, BayesBase, ExponentialFamily, Distributions
-using MessagePassingRulesBase: AbstractAlgorithm, Target, getnodefn, with_outcome
+using MessagePassingRulesBase: AbstractAlgorithm, Target, getnodefn, with_outcome, FactorizedCluster, RuleArgs, RuleNotFound, find_message_rule, message_passing_rule, getresult
 using MessagePassingRulesApproximations: MessagePassingRulesApproximations, Unscented, Linearization, unscented_statistics, smoothRTS
 using MessagePassingRulesBase: IndexedTarget, ClusterTarget, cluster_members, NodeFunctionLogPdf, nodefunction, rule_inputs, interfaces, interface_groups, sdtype, target_edge, target_index
 using BayesBase: FactorizedJoint, expectation, prepare_expectation

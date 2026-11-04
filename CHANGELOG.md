@@ -30,6 +30,12 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   in the product of their domains, and the joint over a deterministic node's inputs that of the
   message on `out` at the function times theirs; an average energy is `-E_q[log f]` under the
   clusters' marginals, joints and groups included. Members of a joint are numbers.
+- A joint with known members, point masses such as data or constants, has them as blocks of
+  their own in a `FactorizedCluster`, and the joint Laplace approximation over the rest with them
+  plugged in. One member left is its own marginal: its message times the node's own message
+  towards it, by the node's rule and in closed form where both exist (`method = :closed_form`), so
+  that the joint agrees with the member's marginal and the free energy stays a bound; Laplace in
+  its domain otherwise. `y ~ Poisson(λ * t)` with `t` known now has a free energy.
 
 - `laplace_form` reports how it projected, as `method`: `:closed_form`, `:point_mass`, `:discrete`
   or `:laplace`, the record an approximation report reads (U5).
