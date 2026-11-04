@@ -146,3 +146,36 @@ end
     F, _ = unwrap_outcome(cavity_energy(MomentForm(), DeltaFn{typeof(double)}, ctx, args))
     @test F ≈ -integral + cross(q_out, c_out) + cross(q_in, c_in) rtol = 1.0e-8
 end
+
+@testitem "site: a pushforward against its output's cavity" tags = [:universal] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily, LinearAlgebra
+    import DeltaMessagePassingRules: LaplaceForm, MomentForm, PushforwardMessage, site, same_message, same_density
+
+    # z = 2x, linear: the site of the pushforward is belief propagation's message, N(2m, 4v),
+    # whatever the output's cavity; against none yet, the same
+    double(x) = 2x
+    input = NormalMeanVariance(0.3, 0.5)
+    message = PushforwardMessage(double, (input,))
+    expected = NormalMeanVariance(0.6, 2.0)
+    for form in (LaplaceForm(), MomentForm()), cavity in (NormalWeightedMeanPrecision(0.2, 1.5), missing)
+        result = site(form, message, cavity)
+        ξ, w = weightedmean_precision(result.site)
+        @test w ≈ 1 / var(expected) rtol = 1.0e-8
+        @test ξ ≈ mean(expected) / var(expected) rtol = 1.0e-8
+    end
+    # a function of two coordinates, against an output cavity that is improper: the tilted
+    # density is proper through the input
+    first_plus(x) = x[1] + x[2]
+    input = MvNormalMeanCovariance([0.1, -0.2], [0.4 0.1; 0.1 0.3])
+    result = site(MomentForm(), PushforwardMessage(first_plus, (input,)), NormalWeightedMeanPrecision(0.1, -0.2))
+    ξ, w = weightedmean_precision(result.site)
+    @test w ≈ 1 / (0.4 + 0.3 + 2 * 0.1) rtol = 1.0e-6
+    @test ξ / w ≈ -0.1 atol = 1.0e-6
+
+    # the same message to a tolerance, for a site that need not be projected again
+    @test same_message(message, PushforwardMessage(double, (NormalMeanVariance(0.3, 0.5),)))
+    @test !same_message(message, PushforwardMessage(double, (NormalMeanVariance(0.3 + 1.0e-6, 0.5),)), 1.0e-10)
+    @test same_message(message, PushforwardMessage(double, (NormalMeanVariance(0.3 + 1.0e-12, 0.5),)), 1.0e-10)
+    @test same_density(NormalWeightedMeanPrecision(1.0, -0.5), NormalWeightedMeanPrecision(1.0, -0.5))
+    @test !same_density(NormalWeightedMeanPrecision(1.0, -0.5), NormalWeightedMeanPrecision(1.0, 0.5), 1.0e-10)
+end

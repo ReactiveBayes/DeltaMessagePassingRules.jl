@@ -23,6 +23,14 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   term `cavity_energy`, `-log ∫ f ∏ c + Σ E_q[log c]`, for stochastic and deterministic nodes.
   Rescaling a cavity changes neither part's sum, so the cavities enter as kernels. The other terms
   of the Bethe free energy stay as they are. `ExpectationRuleFallback()` is unchanged.
+- Under cavity propagation, a deterministic node's message towards `out` is
+  `PushforwardMessage(f, inputs)`, the pushforward unprojected, and its site at the output's
+  variable is the projection against the output's cavity: the moments of `f` under the inputs'
+  tilted density by quadrature on its Laplace approximation (`MomentForm`), or `f` linearised at
+  its mode (`LaplaceForm`). The tilted density is proper even where an input's message is not, so
+  an improper cavity no longer reaches a pushforward's moments. Against no cavity yet, the
+  pushforward of the inputs alone. `same_message` and `same_density` compare raw messages and
+  Gaussians to a tolerance, so that a site need not be projected again.
 
 - `LaplaceForm` and its projection `laplace_form(form, density, previous = nothing)`, the form
   every belief takes in universal inference (U4): a closed form passes, a finite discrete product

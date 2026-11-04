@@ -48,8 +48,8 @@ end
 
 ExpectationRuleFallback() = ExpectationRuleFallback(nothing)
 
-function MessagePassingRulesBase.call_fallback(::ExpectationRuleFallback, node, target::Union{Target, IndexedTarget}, algorithm, ctx, args)
-    sdtype(node) isa Deterministic && return deterministic_message(node, target, ctx, args)
+function MessagePassingRulesBase.call_fallback(fallback::ExpectationRuleFallback, node, target::Union{Target, IndexedTarget}, algorithm, ctx, args)
+    sdtype(node) isa Deterministic && return deterministic_message(node, target, ctx, args, fallback.propagation)
     return stochastic_message(node, target, ctx, args)
 end
 
@@ -180,8 +180,10 @@ function outbound_domain(node::Type{<:ContinuousUnivariateDistribution}, ::Targe
 end
 
 # A deterministic node's messages, through its function of the inputs in order: towards `out` the
-# moment-matched pushforward of the inputs, towards an input the message on `out` pulled back
-function deterministic_message(node, target, ctx, args)
+# moment-matched pushforward of the inputs, towards an input the message on `out` pulled back.
+# Under cavity propagation, towards `out` the pushforward unprojected, whose site the output's
+# variable computes against its cavity.
+function deterministic_message(node, target, ctx, args, propagation = nothing)
     instance = ctx.node
     isnothing(instance) && return nothing
     f = getnodefn(instance, Target(:out))
@@ -189,7 +191,11 @@ function deterministic_message(node, target, ctx, args)
     order = input_order(node, map(first, inputs), target)
     isnothing(order) && return nothing
     values = Dict(inputs)
-    target isa Target{:out} && return pushforward_message(f, map(key -> values[key], order), ctx)
+    if target isa Target{:out}
+        inputs = map(key -> values[key], order)
+        (isnothing(propagation) || all(input -> input isa PointMass, inputs)) && return pushforward_message(f, inputs, ctx)
+        return PushforwardMessage(f, Tuple(inputs))
+    end
     haskey(values, :out) || return nothing
     return pullback_message(f, values[:out], order, target, values, ctx, args)
 end

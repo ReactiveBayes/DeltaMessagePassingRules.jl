@@ -46,6 +46,7 @@ using BayesBase: FactorizedJoint, expectation, prepare_expectation
 using ExpectationApproximations: ExpectationApproximations
 using DomainSets: DomainSets
 using LinearAlgebra: LinearAlgebra, Symmetric, cholesky, dot, issuccess, logdet, tr
+using ForwardDiff: ForwardDiff
 using Compat: @compat
 
 export DeltaFn, DeltaApproximation, is_delta_node_compatible
@@ -65,6 +66,6 @@ include("cavity.jl")
 const EA = ExpectationApproximations
 
 # Universal inference: public, not exported
-@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, site, cavity_energy
+@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, site, cavity_energy, PushforwardMessage, same_message, same_density
 
 end
