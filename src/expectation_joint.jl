@@ -42,7 +42,7 @@ function deterministic_joint(node, members, algorithm, ctx, args)
     outbound = messages[:out]
     own(i) = isempty(interface_groups(node)) ?
         own_message(node, order[i], algorithm, ctx, ((:out => outbound), pairs_except(Tuple(order), incoming, i)...), ()) : nothing
-    return cluster_laplace(u -> logpdf(outbound, f(u...)) + incoming_logpdf(incoming, u), Tuple(order), incoming, own)
+    return cluster_laplace(u -> message_logdensity(outbound, f(u...)) + incoming_logpdf(incoming, u), Tuple(order), incoming, own)
 end
 
 is_number_density(density) = density isa Distribution{Univariate}
@@ -119,8 +119,10 @@ function joint_slots(node, members, keys)
     return NamedTuple{Tuple(names)}(slots)
 end
 
-# The average energy -E_q[log f] of a stochastic node under its clusters' marginals
-function MessagePassingRulesBase.call_energy_fallback(::ExpectationRuleFallback, node, algorithm, ctx, args)
+# The average energy -E_q[log f] of a stochastic node under its clusters' marginals; under cavity
+# propagation, with the node's inbound messages given, EP's term instead
+function MessagePassingRulesBase.call_energy_fallback(fallback::ExpectationRuleFallback, node, algorithm, ctx, args)
+    isnothing(fallback.propagation) || isempty(rule_inputs(node, args.m)) || return cavity_energy(fallback.propagation, node, ctx, args)
     (sdtype(node) isa Stochastic && applicable(nodefunction, node)) || return nothing
     inputs = rule_inputs(node, args.q)
     slots = energy_slots(node, map(first, inputs))

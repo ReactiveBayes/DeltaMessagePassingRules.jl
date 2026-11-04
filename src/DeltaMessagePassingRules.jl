@@ -45,6 +45,7 @@ using MessagePassingRulesBase: IndexedTarget, ClusterTarget, cluster_members, No
 using BayesBase: FactorizedJoint, expectation, prepare_expectation
 using ExpectationApproximations: ExpectationApproximations
 using DomainSets: DomainSets
+using LinearAlgebra: LinearAlgebra, Symmetric, cholesky, dot, issuccess, logdet, tr
 using Compat: @compat
 
 export DeltaFn, DeltaApproximation, is_delta_node_compatible
@@ -58,10 +59,12 @@ include("expectation_fallback.jl")
 include("expectation_joint.jl")
 include("laplace_form.jl")
 include("variational_form.jl")
+include("moment_form.jl")
+include("cavity.jl")
 
 const EA = ExpectationApproximations
 
 # Universal inference: public, not exported
-@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form
+@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, site, cavity_energy
 
 end

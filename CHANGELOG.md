@@ -8,6 +8,22 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
 
 ### Added
 
+- Cavity propagation (U7a, design B): `site(form, message, cavity, previous = nothing)`, a
+  variable's site `proj(message · cavity) / cavity` on one edge, by a `LaplaceForm` (Laplace
+  propagation) or a `MomentForm` (expectation propagation). A closed message is its own site, and
+  against a cavity that is not a Gaussian the message passes. The cavity enters through its
+  natural parameters, so an improper one, singular or indefinite, takes part, and the site is an
+  `(Mv)NormalWeightedMeanPrecision`, proper or not. Nothing checks proper-ness.
+- `MomentForm(; tol, maxiters, nomode, points)` and `moment_form`, `LaplaceForm`'s sibling for
+  expectation propagation: a product is projected onto the Gaussian with its moments, by
+  ExpectationApproximations' `moment_matching`, whose points sit on the product's own Laplace
+  approximation.
+- `ExpectationRuleFallback(propagation)`, the fallback under a propagation scheme: the same
+  messages, and, given the node's inbound messages as well as the marginals, EP's free-energy
+  term `cavity_energy`, `-log ∫ f ∏ c + Σ E_q[log c]`, for stochastic and deterministic nodes.
+  Rescaling a cavity changes neither part's sum, so the cavities enter as kernels. The other terms
+  of the Bethe free energy stay as they are. `ExpectationRuleFallback()` is unchanged.
+
 - `LaplaceForm` and its projection `laplace_form(form, density, previous = nothing)`, the form
   every belief takes in universal inference (U4): a closed form passes, a finite discrete product
   is normalised exactly, and any other product is Laplace's approximation in the unconstrained
@@ -60,6 +76,11 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   :joint_laplace, converged, iterations))`, for the engine's events and an inference report.
 
 ### Changed
+
+- A message on `out` in weighted-mean form, as a site or a product of sites is, pulls back
+  through a deterministic node as its kernel, `ξᵀz - zᵀWz/2`, which an improper message has as
+  well; its tracked log scale gains the normaliser the kernel lacks. Any other message pulls back
+  through its log-density, as before.
 
 - ExpectationApproximations, DomainSets and Compat are dependencies; BayesBase 1.7 and
   MessagePassingRulesBase 1.2 are required.

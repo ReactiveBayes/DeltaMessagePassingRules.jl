@@ -35,9 +35,18 @@ a Gaussian's variance.
 An `ArgumentError` when the context has no expectation backend; RxInfer gives one with
 `options = (context = (expectation = ExpectationApproximations.EADefault(),),)`.
 
+Under cavity propagation, `ExpectationRuleFallback(propagation)` with the projection of the
+variables' sites, a [`LaplaceForm`](@ref) or a [`MomentForm`](@ref), sends the same messages, and
+its free-energy term is EP's, [`cavity_energy`](@ref), when the engine gives it the node's inbound
+messages as well as the marginals.
+
 See also [`LaplaceForm`](@ref).
 """
-struct ExpectationRuleFallback end
+struct ExpectationRuleFallback{P}
+    propagation::P
+end
+
+ExpectationRuleFallback() = ExpectationRuleFallback(nothing)
 
 function MessagePassingRulesBase.call_fallback(::ExpectationRuleFallback, node, target::Union{Target, IndexedTarget}, algorithm, ctx, args)
     sdtype(node) isa Deterministic && return deterministic_message(node, target, ctx, args)
@@ -198,8 +207,9 @@ function pullback_message(f, outbound, order, target, values, ctx, args)
         density = NodeFunctionLogPdf(PulledBack(f, outbound))
         logscale = outbound_logscale(args)
         isnothing(logscale) && return density
-        # the message on out at f(x): its log scale, and a normaliser in x that is unknown
-        return with_logscale(density, isdefined_logscale(logscale) ? UndefinedLogScale(:unnormalised_product, logscale) : logscale)
+        # the message on out at f(x): its log scale, and a normaliser in x that is unknown; a
+        # message in weighted-mean form enters as its kernel, which lacks its own normaliser
+        return with_logscale(density, isdefined_logscale(logscale) ? UndefinedLogScale(:unnormalised_product, logscale + kernel_correction(outbound)) : logscale)
     end
     prepared = prepare_expectation(expectation_backend(ctx), FactorizedJoint(map(key -> values[key], others)))
     return NodeFunctionLogPdf(ExpectedPullBack(f, outbound, prepared, Val(k)))
@@ -214,7 +224,7 @@ struct PulledBack{F, M}
     outbound::M
 end
 
-(pulled::PulledBack)(x) = logpdf(pulled.outbound, pulled.f(x))
+(pulled::PulledBack)(x) = message_logdensity(pulled.outbound, pulled.f(x))
 
 # `x ↦ E[log m_out(f(…, x, …))]` over the other inputs, `x` the `K`-th
 struct ExpectedPullBack{K, F, M, P}
@@ -225,7 +235,7 @@ end
 
 ExpectedPullBack(f::F, outbound::M, prepared::P, ::Val{K}) where {K, F, M, P} = ExpectedPullBack{K, F, M, P}(f, outbound, prepared)
 
-(pulled::ExpectedPullBack{K})(x) where {K} = expectation(pulled.prepared, others -> logpdf(pulled.outbound, pulled.f(insert_at(others, K, x)...)))
+(pulled::ExpectedPullBack{K})(x) where {K} = expectation(pulled.prepared, others -> message_logdensity(pulled.outbound, pulled.f(insert_at(others, K, x)...)))
 
 insert_at(others::Tuple, k, x) = (others[1:(k - 1)]..., x, others[k:end]...)
 
