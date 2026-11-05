@@ -39,8 +39,15 @@ true
 module DeltaMessagePassingRules
 
 using MessagePassingRulesBase, BayesBase, ExponentialFamily, Distributions
-using MessagePassingRulesBase: AbstractAlgorithm, Target, getnodefn
+using MessagePassingRulesBase: AbstractAlgorithm, Target, getnodefn, with_outcome, FactorizedCluster, RuleArgs, RuleNotFound, find_message_rule, message_passing_rule, getresult
 using MessagePassingRulesApproximations: MessagePassingRulesApproximations, Unscented, Linearization, unscented_statistics, smoothRTS
+using MessagePassingRulesBase: IndexedTarget, ClusterTarget, cluster_members, NodeFunctionLogPdf, nodefunction, rule_inputs, interfaces, interface_groups, sdtype, target_edge, target_index
+using BayesBase: FactorizedJoint, expectation, prepare_expectation
+using ExpectationApproximations: ExpectationApproximations
+using DomainSets: DomainSets
+using LinearAlgebra: LinearAlgebra, Symmetric, cholesky, dot, issuccess, logdet, tr
+using ForwardDiff: ForwardDiff
+using Compat: @compat
 
 export DeltaFn, DeltaApproximation, is_delta_node_compatible
 export CVIProjection, CVISamplingStrategy, FullSampling, MeanBased, ProposalDistributionContainer
@@ -49,5 +56,16 @@ include("node.jl")
 include("approximate.jl")
 include("rules/gaussian.jl")
 include("cvi_projection.jl")
+include("expectation_fallback.jl")
+include("expectation_joint.jl")
+include("laplace_form.jl")
+include("variational_form.jl")
+include("moment_form.jl")
+include("cavity.jl")
+
+const EA = ExpectationApproximations
+
+# Universal inference: public, not exported
+@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, site, cavity_energy, PushforwardMessage, same_message, same_density
 
 end
