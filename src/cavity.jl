@@ -116,7 +116,7 @@ input_start(input) = mean(input)
 function pushforward_projection(form::MomentForm, f, point, logp, x0)
     laplace = EA.laplace(logp, x0; tol = form.tol, maxiters = form.maxiters)
     base = laplace.converged ? laplace.distribution : (x0 isa Real ? Normal(float(x0), 1.0) : MvNormal(float.(collect(x0)), Matrix{Float64}(LinearAlgebra.I, length(x0), length(x0))))
-    set = prepare_expectation(EA.GaussHermite(form.points), base)
+    set = prepare_expectation(form.backend, base)
     xs = collect(set.points)
     logw = [log(w) + logp(x) - logpdf(base, x) for (x, w) in zip(xs, set.weights)]
     top = maximum(logw)
@@ -156,7 +156,7 @@ function cavity_projection(form::LaplaceForm, logp, x0)
     return (; result.distribution, result.logZ, result.mode, result.converged, result.iterations, method = :laplace)
 end
 function cavity_projection(form::MomentForm, logp, x0)
-    result = EA.moment_matching(logp, x0; backend = EA.GaussHermite(form.points), tol = form.tol, maxiters = form.maxiters)
+    result = EA.moment_matching(logp, x0; backend = form.backend, tol = form.tol, maxiters = form.maxiters)
     return (; result.distribution, result.logZ, mode = result.mean, result.converged, result.iterations, method = :moment_matching)
 end
 

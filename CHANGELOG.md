@@ -14,10 +14,11 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   against a cavity that is not a Gaussian the message passes. The cavity enters through its
   natural parameters, so an improper one, singular or indefinite, takes part, and the site is an
   `(Mv)NormalWeightedMeanPrecision`, proper or not. Nothing checks proper-ness.
-- `MomentForm(; tol, maxiters, nomode, points)` and `moment_form`, `LaplaceForm`'s sibling for
+- `MomentForm(; tol, maxiters, nomode, points, backend)` and `moment_form`, `LaplaceForm`'s sibling for
   expectation propagation: a product is projected onto the Gaussian with its moments, by
   ExpectationApproximations' `moment_matching`, whose points sit on the product's own Laplace
-  approximation.
+  approximation. Its quadrature is `GaussHermite(points)`, built once, or any `backend` with a
+  point set for a Gaussian, such as `SphericalRadialCubature()`, 2d points in d dimensions.
 - `ExpectationRuleFallback(propagation)`, the fallback under a propagation scheme: the same
   messages, and, given the node's inbound messages as well as the marginals, EP's free-energy
   term `cavity_energy`, `-log ∫ f ∏ c + Σ E_q[log c]`, for stochastic and deterministic nodes.

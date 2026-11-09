@@ -21,6 +21,25 @@
     @test_throws ArgumentError MomentForm(nomode = :drop)
 end
 
+@testitem "MomentForm: its quadrature, built once, or any backend with a point set" tags = [:universal] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily
+    using MessagePassingRulesBase: NodeFunctionLogPdf
+    import DeltaMessagePassingRules: MomentForm, site
+    import ExpectationApproximations as EA
+    @test MomentForm(points = 7).backend isa EA.GaussHermite
+    # a Gaussian likelihood of x₁ against a cavity indefinite in x₁: the tilted density is a
+    # Gaussian, whose moments a rule exact to degree 3 gets, so the site is the likelihood's
+    y, r = 0.8, 0.1
+    raw = NodeFunctionLogPdf(x -> -(y - x[1])^2 / (2r))
+    cavity = MvNormalWeightedMeanPrecision([0.1, -0.4], [-0.3 0.2; 0.2 2.0])
+    for backend in (EA.SphericalRadialCubature(), EA.GenUnscented())
+        result = site(MomentForm(backend = backend), raw, cavity)
+        ξ, Λ = weightedmean_precision(result.site)
+        @test Λ ≈ [1 / r 0.0; 0.0 0.0] atol = 1.0e-8
+        @test ξ ≈ [y / r, 0.0] atol = 1.0e-8
+    end
+end
+
 @testitem "site: closed messages are their own, raw ones are projections less the cavity" tags = [:universal] begin
     using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily, ForwardDiff
     using MessagePassingRulesBase: NodeFunctionLogPdf
