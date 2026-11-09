@@ -66,6 +66,6 @@ include("cavity.jl")
 const EA = ExpectationApproximations
 
 # Universal inference: public, not exported
-@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, site, cavity_energy, PushforwardMessage, same_message, same_density
+@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, site, cavity_energy, PushforwardMessage, TiltedJointMessage, same_message, same_density
 
 end

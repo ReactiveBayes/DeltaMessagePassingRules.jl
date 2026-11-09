@@ -50,7 +50,7 @@ ExpectationRuleFallback() = ExpectationRuleFallback(nothing)
 
 function MessagePassingRulesBase.call_fallback(fallback::ExpectationRuleFallback, node, target::Union{Target, IndexedTarget}, algorithm, ctx, args)
     sdtype(node) isa Deterministic && return deterministic_message(node, target, ctx, args, fallback.propagation)
-    return stochastic_message(node, target, ctx, args)
+    return stochastic_message(node, target, ctx, args, fallback.propagation)
 end
 
 # The backend the fallback computes its expectations with: the context's, which RxInfer sets with
@@ -66,10 +66,34 @@ function expectation_backend(ctx)
     return backend
 end
 
+# Under cavity propagation, a stochastic node whose other edges all come as messages, some of them
+# Gaussians and the rest point masses (a point mass may come as a marginal): the target's message is belief propagation's, the factor
+# integrated against those messages, the other edges' cavities, whose site the target's variable
+# projects jointly (`TiltedJointMessage`). Otherwise `nothing`, and the message below.
+function tilted_joint_message(node, target, ctx, args, propagation)
+    (isnothing(propagation) || !(target isa Target) || !isempty(interface_groups(node))) && return nothing
+    # a marginal of another cluster is a mean-field input, unless it is a point mass, data or a
+    # constant, which is plugged in either way
+    marginals = rule_inputs(node, args.q)
+    all(input -> last(input) isa PointMass, marginals) || return nothing
+    messages = Dict((rule_inputs(node, args.m)..., marginals...))
+    names, name = Tuple(interfaces(node)), target_edge(target)
+    all(other -> other === name || haskey(messages, other), names) || return nothing
+    inputs = map(other -> other === name ? nothing : messages[other], names)
+    joint_inputs_message(inputs) || return nothing
+    return TiltedJointMessage(nodefunction(node), nothing, inputs, names, findfirst(isequal(name), names), expectation_backend(ctx))
+end
+
+# The other edges' messages admit a joint site: one at least is a Gaussian, and the rest point masses
+joint_inputs_message(inputs) =
+    any(input -> input isa GaussianMessage, inputs) && all(input -> isnothing(input) || input isa Union{PointMass, GaussianMessage}, inputs)
+
 # The message towards `target`: the node's log-density with the target free, in expectation over
 # every other input
-function stochastic_message(node, target, ctx, args)
+function stochastic_message(node, target, ctx, args, propagation = nothing)
     applicable(nodefunction, node) || return nothing
+    joint = tilted_joint_message(node, target, ctx, args, propagation)
+    isnothing(joint) || return joint
     inputs = (rule_inputs(node, args.m)..., rule_inputs(node, args.q)...)
     slots = interface_slots(node, map(first, inputs), target)
     isnothing(slots) && return nothing
@@ -197,7 +221,7 @@ function deterministic_message(node, target, ctx, args, propagation = nothing)
         return PushforwardMessage(f, Tuple(inputs))
     end
     haskey(values, :out) || return nothing
-    return pullback_message(f, values[:out], order, target, values, ctx, args)
+    return pullback_message(f, values[:out], order, target, values, ctx, args, propagation)
 end
 
 function pushforward_message(f, inputs, ctx)
@@ -206,7 +230,7 @@ function pushforward_message(f, inputs, ctx)
     return m isa Real ? NormalMeanVariance(m, V) : MvNormalMeanCovariance(m, V)
 end
 
-function pullback_message(f, outbound, order, target, values, ctx, args)
+function pullback_message(f, outbound, order, target, values, ctx, args, propagation = nothing)
     k = findfirst(isequal(target_key(target)), order)
     others = Tuple(key for key in order if key != target_key(target))
     if isempty(others)
@@ -216,6 +240,12 @@ function pullback_message(f, outbound, order, target, values, ctx, args)
         # the message on out at f(x): its log scale, and a normaliser in x that is unknown; a
         # message in weighted-mean form enters as its kernel, which lacks its own normaliser
         return with_logscale(density, isdefined_logscale(logscale) ? UndefinedLogScale(:unnormalised_product, logscale + kernel_correction(outbound)) : logscale)
+    end
+    # under cavity propagation, belief propagation's message, the factor integrated against the
+    # other inputs' messages, whose site the target's variable projects jointly
+    if !isnothing(propagation)
+        inputs = map(key -> key == target_key(target) ? nothing : values[key], Tuple(order))
+        joint_inputs_message(inputs) && return TiltedJointMessage(f, outbound, inputs, nothing, k, expectation_backend(ctx))
     end
     prepared = prepare_expectation(expectation_backend(ctx), FactorizedJoint(map(key -> values[key], others)))
     return NodeFunctionLogPdf(ExpectedPullBack(f, outbound, prepared, Val(k)))

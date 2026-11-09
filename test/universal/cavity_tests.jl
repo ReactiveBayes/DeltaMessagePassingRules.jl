@@ -198,3 +198,99 @@ end
     @test same_density(NormalWeightedMeanPrecision(1.0, -0.5), NormalWeightedMeanPrecision(1.0, -0.5))
     @test !same_density(NormalWeightedMeanPrecision(1.0, -0.5), NormalWeightedMeanPrecision(1.0, 0.5), 1.0e-10)
 end
+
+@testmodule JointNodes begin
+    using BayesBase, Distributions, MessagePassingRulesBase
+
+    # `out ~ LogPrecisionNormal(μ, z)`: a Gaussian with mean `μ` and precision `exp(z)`, with no
+    # rules, a node with two random inputs
+    struct LogPrecisionNormal{M, Z} <: ContinuousUnivariateDistribution
+        μ::M
+        z::Z
+    end
+    BayesBase.logpdf(d::LogPrecisionNormal, y::Real) = (d.z - log(2π) - exp(d.z) * (y - d.μ)^2) / 2
+    @define_factor_node(node = LogPrecisionNormal, type = Stochastic, interfaces = [:out, :μ, :z])
+end
+
+@testitem "TiltedJointMessage: a node with two random inputs, against a grid" tags = [:universal] setup = [JointNodes] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily, MessagePassingRulesBase
+    using MessagePassingRulesBase: RuleArgs, RuleContext, Target, call_fallback, unwrap_fallback
+    import DeltaMessagePassingRules: ExpectationRuleFallback, LaplaceForm, MomentForm, TiltedJointMessage, site, same_message
+    import ExpectationApproximations as EA
+    J = JointNodes
+
+    y = 1.3
+    cμ, cz = NormalWeightedMeanPrecision(0.2, 1.0), NormalWeightedMeanPrecision(0.0, 2.0)
+    ctx = RuleContext(expectation = EA.EADefault())
+    message(propagation, target, args) = first(unwrap_fallback(call_fallback(ExpectationRuleFallback(propagation), J.LogPrecisionNormal, target, nothing, ctx, args)))
+    toμ = message(MomentForm(), Target(:μ), RuleArgs(m = (out = PointMass(y), z = cz)))
+    toz = message(MomentForm(), Target(:z), RuleArgs(m = (out = PointMass(y), μ = cμ)))
+    # under propagation, belief propagation's message; without, the expected log-density as before
+    @test toμ isa TiltedJointMessage && toz isa TiltedJointMessage
+    @test !(message(nothing, Target(:μ), RuleArgs(m = (out = PointMass(y), z = cz))) isa TiltedJointMessage)
+    # data that comes as a marginal, as RxInfer gives an observation, is plugged in as well
+    @test message(MomentForm(), Target(:μ), RuleArgs(m = (z = cz,), q = (out = PointMass(y),))) isa TiltedJointMessage
+    # an input that comes as a marginal, mean field, keeps the expected log-density
+    @test !(message(MomentForm(), Target(:μ), RuleArgs(m = (out = PointMass(y),), q = (z = cz,))) isa TiltedJointMessage)
+
+    # the tilted density over (μ, z) on a fine grid
+    μs, zs = range(-5, 5; length = 801), range(-6, 5; length = 801)
+    logt = [logpdf(J.LogPrecisionNormal(μ, z), y) + logpdf(cμ, μ) + logpdf(cz, z) for μ in μs, z in zs]
+    w = exp.(logt .- maximum(logt))
+    w ./= sum(w)
+    mμ, mz = sum(w .* μs), sum(w .* zs')
+    vμ, vz = sum(w .* (μs .- mμ) .^ 2), sum(w .* (zs' .- mz) .^ 2)
+
+    # each site times its cavity is the tilted density's marginal of its variable
+    qμ = prod(PreserveTypeProd(Distribution), site(MomentForm(points = 30), toμ, cμ).site, cμ)
+    qz = prod(PreserveTypeProd(Distribution), site(MomentForm(points = 30), toz, cz).site, cz)
+    @test mean(qμ) ≈ mμ atol = 1.0e-4
+    @test var(qμ) ≈ vμ rtol = 1.0e-3
+    @test mean(qz) ≈ mz atol = 1.0e-4
+    @test var(qz) ≈ vz rtol = 1.0e-3
+
+    # Laplace: the variable's block of the joint Laplace approximation
+    joint = EA.laplace(v -> logpdf(J.LogPrecisionNormal(v[1], v[2]), y) + logpdf(cμ, v[1]) + logpdf(cz, v[2]), [0.0, 0.0])
+    qμ = prod(PreserveTypeProd(Distribution), site(LaplaceForm(), toμ, cμ).site, cμ)
+    @test mean(qμ) ≈ mean(joint.distribution)[1] atol = 1.0e-8
+    @test var(qμ) ≈ cov(joint.distribution)[1, 1] rtol = 1.0e-6
+
+    # its log-density, where a variable projects it as a product: the factor integrated against
+    # the other input's message
+    for μ in (-0.5, 0.4)
+        reference = log(sum(z -> exp(logpdf(J.LogPrecisionNormal(μ, z), y) + logpdf(cz, z)), zs) * step(zs))
+        @test logpdf(toμ, μ) ≈ reference rtol = 1.0e-3
+    end
+    # the same message again is the same, and a site against a missing cavity waits
+    @test same_message(toμ, message(MomentForm(), Target(:μ), RuleArgs(m = (out = PointMass(y), z = cz))), 1.0e-10)
+    @test !same_message(toμ, toz)
+    @test ismissing(site(MomentForm(), toμ, missing).site)
+end
+
+@testitem "TiltedJointMessage: a deterministic node's pull-back to one of two inputs" tags = [:universal] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily, MessagePassingRulesBase
+    using MessagePassingRulesBase: RuleArgs, RuleContext, Target, IndexedTarget, call_fallback, unwrap_fallback
+    import DeltaMessagePassingRules: ExpectationRuleFallback, MomentForm, TiltedJointMessage, site
+    import ExpectationApproximations as EA
+    struct Fn{F}
+        f::F
+    end
+    MessagePassingRulesBase.getnodefn(node::Fn, ::Target{:out}) = node.f
+    product(a, b) = a * b
+    ctx = RuleContext(node = Fn(product), expectation = EA.EADefault())
+    # out = a·b observed through a Gaussian message on out, b's message a Gaussian about 1 (a broad
+    # one would leave a ridge along a·b = 1.5, which no Gaussian resolves)
+    outbound, ca, cb = NormalMeanVariance(1.5, 0.2), NormalWeightedMeanPrecision(0.5, 1.0), NormalWeightedMeanPrecision(25.0, 25.0)
+    args = RuleArgs(m = (out = outbound, in = (nothing, cb)))
+    toa, _ = unwrap_fallback(call_fallback(ExpectationRuleFallback(MomentForm()), DeltaFn{typeof(product)}, IndexedTarget(:in, 1), nothing, ctx, args))
+    @test toa isa TiltedJointMessage
+    as, bs = range(-6, 6; length = 801), range(-6, 6; length = 801)
+    logt = [logpdf(outbound, a * b) + logpdf(ca, a) + logpdf(cb, b) for a in as, b in bs]
+    w = exp.(logt .- maximum(logt))
+    w ./= sum(w)
+    ma = sum(w .* as)
+    va = sum(w .* (as .- ma) .^ 2)
+    qa = prod(PreserveTypeProd(Distribution), site(MomentForm(points = 30), toa, ca).site, ca)
+    @test mean(qa) ≈ ma atol = 1.0e-4
+    @test var(qa) ≈ va rtol = 1.0e-3
+end

@@ -76,12 +76,93 @@ function site(form, message::PushforwardMessage, cavity, previous = nothing)
 end
 
 """
+    TiltedJointMessage(f, outbound, inputs, names, index, backend)
+
+The message of a node with several random inputs towards one of them, the `index`-th, under
+cavity propagation: `x ↦ log ∫ f(…, x, …) ∏ cⱼ(yⱼ) dy`, the node's factor integrated against the
+other edges' messages `inputs`, their cavities, as belief propagation defines it, unprojected.
+`inputs` holds every edge's message in the factor's order, `nothing` at the target's place. The
+factor is a stochastic node's keyword log-density `f` with its interface `names` (`outbound` is
+`nothing`), or a deterministic node's message on out at its function, `log outbound(f(…))`
+(`names` is `nothing`).
+
+Its site, at the target's variable ([`site`](@ref)), is the target's block of the projection of
+the joint tilted density `f · c_x · ∏ cⱼ` over the target and the other free inputs, less the
+target's cavity `c_x`: expectation propagation's update for a factor with several inputs, which
+needs no single cavity to be proper, only the tilted density to be. Its log-density, where a
+variable projects it as a product, is the integral by the expectation `backend` over the other
+inputs' messages, or by Laplace's method where one of them is improper.
+"""
+struct TiltedJointMessage{F, O, I, N, B}
+    f::F
+    outbound::O
+    inputs::I
+    names::N
+    index::Int
+    backend::B
+end
+
+is_closed_form(::TiltedJointMessage) = false
+
+# The node's log-factor at the values of every edge, in its order
+joint_logfactor(message::TiltedJointMessage{F, Nothing}, values) where {F} = message.f(; map(Pair, message.names, values)...)
+joint_logfactor(message::TiltedJointMessage, values) = message_logdensity(message.outbound, message.f(values...))
+
+# The other edges that are free, not point masses, and the values of every edge from theirs and `x`
+function joint_layout(message::TiltedJointMessage)
+    inputs, k = message.inputs, message.index
+    return Tuple(i for i in eachindex(inputs) if i != k && !(inputs[i] isa PointMass))
+end
+joint_values(message::TiltedJointMessage, x, others, free) =
+    map(i -> i == message.index ? x : (i in free ? others[findfirst(isequal(i), free)] : mean(message.inputs[i])), Tuple(eachindex(message.inputs)))
+
+BayesBase.insupport(::TiltedJointMessage, x) = true
+
+function BayesBase.logpdf(message::TiltedJointMessage, x)
+    free = joint_layout(message)
+    densities = map(i -> message.inputs[i], free)
+    logf = others -> joint_logfactor(message, joint_values(message, x, others, free))
+    if all(is_proper_message, densities)
+        return first(EA.tilted_mean_cov(message.backend, logf, FactorizedJoint(densities)))
+    end
+    # an improper message among them: the integral of the tilted density by Laplace's method
+    layout = map(value_dimension, densities)
+    logp = v -> (others = map(j -> unpack(v, layout, j), eachindex(free)); logf(others) + sum(j -> message_logdensity(densities[j], others[j]), eachindex(free)))
+    return EA.laplace(logp, pack(map(input_start, densities))).logZ
+end
+
+function site(form, message::TiltedJointMessage, cavity, previous = nothing)
+    # the target's own dimension comes from its cavity: none yet, and the message waits
+    ismissing(cavity) && return (; site = missing, outcome = (; method = :waiting))
+    cavity isa GaussianMessage || return (; site = message, outcome = (; method = :passed))
+    ξ, W = weightedmean_precision(cavity)
+    free = joint_layout(message)
+    densities = map(i -> message.inputs[i], free)
+    # the target first, then the other free inputs, as one vector
+    layout = (value_dimension(cavity), map(value_dimension, densities)...)
+    logp = function (v)
+        x, others = unpack(v, layout, 1), map(j -> unpack(v, layout, j + 1), eachindex(free))
+        return joint_logfactor(message, joint_values(message, x, others, free)) + gaussian_logkernel(ξ, W, x) +
+            sum(j -> message_logdensity(densities[j], others[j]), eachindex(free); init = zero(eltype(v)))
+    end
+    start = pack((kernel_start(ξ, W), map(input_start, densities)...))
+    x0 = previous isa AbstractVector && length(previous) == length(start) ? previous : start
+    result = cavity_projection(form, logp, x0)
+    # the target's block of the joint Gaussian, its marginal
+    block = layout[1] == 0 ? (1:1) : (1:layout[1])
+    m, V = mean(result.distribution)[block], cov(result.distribution)[block, block]
+    Wq = inv(Symmetric(V))
+    ξq, Wq = layout[1] == 0 ? (only(Wq * m), only(Wq)) : (Wq * m, Matrix(Wq))
+    return (; site = weighted_mean_precision(ξq - ξ, Wq - W), outcome = (; result.method, result.converged, result.iterations, result.logZ, result.mode))
+end
+
+"""
     same_message(a, b, tol = 0) -> Bool
 
 Whether two raw messages are the same density, to `tol` relative in natural parameters, so that a
 site computed against the same cavity need not be projected again: a message pulled back through a
-deterministic node, by its function and its message on `out`, and a pushforward, by its function
-and its inputs. Any other message is compared by identity, as a log-density that is a closure
+deterministic node, by its function and its message on `out`, a pushforward, by its function
+and its inputs, and a [`TiltedJointMessage`](@ref), by its factor and the other edges' messages. Any other message is compared by identity, as a log-density that is a closure
 cannot be compared.
 """
 same_message(a, b, tol = 0) = a === b
@@ -89,6 +170,9 @@ same_message(a::NodeFunctionLogPdf{<:PulledBack}, b::NodeFunctionLogPdf{<:Pulled
     a.logpdf.f === b.logpdf.f && same_density(a.logpdf.outbound, b.logpdf.outbound, tol)
 same_message(a::PushforwardMessage, b::PushforwardMessage, tol = 0) =
     a.f === b.f && length(a.inputs) == length(b.inputs) && all(i -> same_density(a.inputs[i], b.inputs[i], tol), eachindex(a.inputs))
+same_message(a::TiltedJointMessage, b::TiltedJointMessage, tol = 0) =
+    a.f === b.f && a.index == b.index && a.names == b.names && same_density(a.outbound, b.outbound, tol) &&
+    length(a.inputs) == length(b.inputs) && all(i -> same_density(a.inputs[i], b.inputs[i], tol), eachindex(a.inputs))
 
 """
     same_density(a, b, tol = 0) -> Bool
@@ -189,6 +273,10 @@ weighted_mean_precision(ξ::AbstractVector, W::AbstractMatrix) = MvNormalWeighte
 const WeightedMeanGaussian = Union{NormalWeightedMeanPrecision, MvNormalWeightedMeanPrecision}
 message_logdensity(message::WeightedMeanGaussian, x) = ((ξ, W) = weightedmean_precision(message); gaussian_logkernel(ξ, W, x))
 message_logdensity(message, x) = logpdf(message, x)
+
+# Whether a message has a normaliser: a Gaussian kernel with a positive definite precision
+is_proper_message(message::WeightedMeanGaussian) = ((_, W) = weightedmean_precision(message); W isa Real ? W > 0 : isposdef(Symmetric(Matrix(W))))
+is_proper_message(message) = true
 
 # The log of a weighted-mean Gaussian's normaliser, `log ∫ exp(ξᵀx - xᵀWx/2) dx`: what the kernel
 # lacks of its log-density. NaN where `W` is not positive definite, as for an improper message.

@@ -32,6 +32,14 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
   an improper cavity no longer reaches a pushforward's moments. Against no cavity yet, the
   pushforward of the inputs alone. `same_message` and `same_density` compare raw messages and
   Gaussians to a tolerance, so that a site need not be projected again.
+- Under cavity propagation, a node with several random inputs sends belief propagation's message
+  to each, `x ↦ log ∫ f(x, y) ∏ c_y(y) dy`, the factor integrated against the other edges'
+  messages, their cavities, instead of the expected log-density `E[log f]`:
+  `TiltedJointMessage`, for a stochastic node whose other edges are Gaussian messages or point
+  masses, and for a deterministic node's pull-back to one of several inputs. Its site is the
+  target's block of the joint tilted density's projection, less the target's cavity: expectation
+  propagation's update for such a factor. An input that comes as a marginal of another cluster,
+  mean field, or a message that is not a Gaussian keeps the expected log-density.
 
 - `LaplaceForm` and its projection `laplace_form(form, density, previous = nothing)`, the form
   every belief takes in universal inference (U4): a closed form passes, a finite discrete product
