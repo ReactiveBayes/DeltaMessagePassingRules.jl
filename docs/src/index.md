@@ -51,6 +51,8 @@ true
 - [The Delta node](@ref delta-node): the node, its algorithm, its rules and their limitations;
 - [Projection](@ref delta-projection): [`CVIProjection`](@ref), the method for messages that are
   not normal, and its sampling strategies;
-- [Universal inference](@ref delta-universal): a rule fallback and a form constraint for nodes
-  without rules, Delta nodes without a method among them, by Laplace's approximation;
+- [Universal inference](@ref delta-universal): a rule fallback and three projections for
+  models without rules, Delta nodes without a method among them: Laplace's approximation, the
+  variational Gaussian, and the sites of Laplace propagation and expectation propagation, which
+  RxInfer's fallback schemes combine;
 - [Internals](@ref delta-internals): the helpers the Gaussian rules share, for contributors.

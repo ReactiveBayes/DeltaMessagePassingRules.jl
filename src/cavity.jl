@@ -1,9 +1,11 @@
-# Cavity propagation (design B, the hub's `design/cavity_propagation.md`): a variable keeps one site
-# per edge, `proj(m · c) / c` against its outbound message on that edge, the cavity `c`, and every
-# belief is a product of sites. `site` computes one; a node that sends a raw message takes the
-# free-energy term of EP, `cavity_energy`. A site, a cavity or a message out may be improper, a
-# Gaussian with a singular or indefinite precision: nothing checks, and these functions use a
-# Gaussian only through its natural parameters, never its moments or its normaliser.
+# Cavity propagation: a variable keeps one site per edge, `proj(m · c) / c` against its outbound
+# message on that edge, the cavity `c`, and every belief is a product of sites (the docs page
+# "Universal inference" explains it). `site` computes one; a node that sends a raw message takes
+# the free-energy term of EP, `cavity_energy`. A site, a cavity or a message out may be improper,
+# a Gaussian with a singular or indefinite precision: nothing checks, and these functions use a
+# Gaussian only through its natural parameters, never its moments or its normaliser: for an
+# indefinite precision, FastCholesky's fallback (GMW81) silently inverts a different, positive
+# definite matrix, so moments computed from it describe another Gaussian.
 
 const GaussianMessage = Union{UnivariateNormalDistributionsFamily, MultivariateNormalDistributionsFamily}
 
@@ -25,7 +27,7 @@ propagation) or a [`MomentForm`](@ref) (expectation propagation).
 `outcome` is `(; method, converged, iterations, logZ, mode)`, `method` being `:closed_form`,
 `:passed`, `:laplace` or `:moment_matching`, and `logZ` the log of the tilted density's integral
 with the cavity as a kernel. A raw message against a `missing` cavity, while no other edge has a
-site, has a site `missing`: none yet.
+site, has a site `missing`, none yet, and the outcome `(; method = :waiting)`.
 """
 function site(form, message, cavity, previous = nothing)
     is_closed_form(message) && return (; site = message, outcome = (; method = :closed_form))
@@ -92,6 +94,10 @@ target's cavity `c_x`: expectation propagation's update for a factor with severa
 needs no single cavity to be proper, only the tilted density to be. Its log-density, where a
 variable projects it as a product, is the integral by the expectation `backend` over the other
 inputs' messages, or by Laplace's method where one of them is improper.
+
+The other inputs' messages must be Gaussians or point masses: a node with an input whose message
+is of another family, or that comes as a mean-field marginal, sends the expected log-density
+instead (see [`ExpectationRuleFallback`](@ref)).
 """
 struct TiltedJointMessage{F, O, I, N, B}
     f::F
@@ -162,8 +168,9 @@ end
 Whether two raw messages are the same density, to `tol` relative in natural parameters, so that a
 site computed against the same cavity need not be projected again: a message pulled back through a
 deterministic node, by its function and its message on `out`, a pushforward, by its function
-and its inputs, and a [`TiltedJointMessage`](@ref), by its factor and the other edges' messages. Any other message is compared by identity, as a log-density that is a closure
-cannot be compared.
+and its inputs, and a [`TiltedJointMessage`](@ref), by its factor and the other edges' messages.
+Any other message is compared by identity, as a log-density that is a closure cannot be
+compared.
 """
 same_message(a, b, tol = 0) = a === b
 same_message(a::NodeFunctionLogPdf{<:PulledBack}, b::NodeFunctionLogPdf{<:PulledBack}, tol = 0) =

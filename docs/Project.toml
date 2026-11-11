@@ -14,7 +14,7 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [sources]
 DeltaMessagePassingRules = {path = ".."}
-# TEMPORARY: the branches of universal inference (U4), until they are released
+# TEMPORARY: the universal-inference branches of these packages, until they are released
 BayesBase = {url = "https://github.com/ReactiveBayes/BayesBase.jl", rev = "universal-inference"}
 ExpectationApproximations = {url = "git@github.com:ReactiveBayes/ExpectationApproximations.jl.git", rev = "universal-inference"}
 MessagePassingRulesBase = {url = "https://github.com/ReactiveBayes/MessagePassingRulesBase.jl", rev = "universal-inference"}

@@ -1,5 +1,6 @@
 """
     ExpectationRuleFallback()
+    ExpectationRuleFallback(propagation)
 
 A rule fallback for universal inference: where no rule fits, the messages, joint marginals and
 average energies of a node, computed from its log-density with the expectation backend of the
@@ -31,16 +32,28 @@ Unlike [`NodeFunctionRuleFallback`](@extref MessagePassingRulesBase.NodeFunction
 which plugs in the inputs' means, the message keeps their spread: a categorical's probabilities and
 a Gaussian's variance.
 
+Under cavity propagation, `ExpectationRuleFallback(propagation)` takes the projection of the
+variables' sites, a [`LaplaceForm`](@ref) (Laplace propagation) or a [`MomentForm`](@ref)
+(expectation propagation), and sends messages that the sites project, rather than ones that are
+projected on their own:
+
+- towards `out` of a deterministic node, the pushforward of its inputs' messages, unprojected, a
+  [`PushforwardMessage`](@ref);
+- towards one input of a node with several random inputs, belief propagation's message, the
+  factor integrated against the other edges' messages, a [`TiltedJointMessage`](@ref), when those
+  messages are Gaussians or point masses. An input that is not a Gaussian, such as a Gamma
+  precision, or that comes as a mean-field marginal, keeps the expected log-density above;
+- every other message as above.
+
+Its free-energy term is then expectation propagation's, [`cavity_energy`](@ref), when the engine
+gives it the node's inbound messages as well as the marginals.
+
 # Throws
-An `ArgumentError` when the context has no expectation backend; RxInfer gives one with
+An `ArgumentError` when the context has no expectation backend. RxInfer's fallback schemes, such
+as `fallback = LocalLaplace()`, give one; so does
 `options = (context = (expectation = ExpectationApproximations.EADefault(),),)`.
 
-Under cavity propagation, `ExpectationRuleFallback(propagation)` with the projection of the
-variables' sites, a [`LaplaceForm`](@ref) or a [`MomentForm`](@ref), sends the same messages, and
-its free-energy term is EP's, [`cavity_energy`](@ref), when the engine gives it the node's inbound
-messages as well as the marginals.
-
-See also [`LaplaceForm`](@ref).
+See also [`LaplaceForm`](@ref), [`site`](@ref).
 """
 struct ExpectationRuleFallback{P}
     propagation::P
@@ -66,10 +79,13 @@ function expectation_backend(ctx)
     return backend
 end
 
-# Under cavity propagation, a stochastic node whose other edges all come as messages, some of them
-# Gaussians and the rest point masses (a point mass may come as a marginal): the target's message is belief propagation's, the factor
-# integrated against those messages, the other edges' cavities, whose site the target's variable
-# projects jointly (`TiltedJointMessage`). Otherwise `nothing`, and the message below.
+# Under cavity propagation, a stochastic node whose other edges all come as messages, some of
+# them Gaussians and the rest point masses (a point mass may come as a marginal): the target's
+# message is belief propagation's, the factor integrated against those messages, the other edges'
+# cavities, whose site the target's variable projects jointly (`TiltedJointMessage`). Otherwise
+# `nothing`, and the expected log-density below: the integral against a message that is not a
+# Gaussian, such as a Gamma precision's, would need a joint site in that message's family, which
+# the sites, Gaussians, do not have.
 function tilted_joint_message(node, target, ctx, args, propagation)
     (isnothing(propagation) || !(target isa Target) || !isempty(interface_groups(node))) && return nothing
     # a marginal of another cluster is a mean-field input, unless it is a point mass, data or a
