@@ -75,6 +75,11 @@ PushforwardMessage(f, inputs) = PushforwardMessage(f, inputs, nothing)
 is_closed_form(::PushforwardMessage) = false
 
 BayesBase.insupport(::PushforwardMessage, z) = true
+
+# Where a projection of a pushforward starts: the function at its inputs' means, where its density
+# is not zero, as it can be at zero, `exp`'s
+pushed_mean(message::PushforwardMessage) = message.f(map(input_start, message.inputs)...)
+pushed_mean(part) = nothing
 BayesBase.logpdf(message::PushforwardMessage, z) = log_density_function(message)(z)
 
 # The pushforward's log-density, prepared once: through the inverse of a monotone function of a

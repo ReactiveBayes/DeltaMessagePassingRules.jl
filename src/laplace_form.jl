@@ -126,7 +126,8 @@ function start_point(logp, domain, parts, previous)
     candidates = Any[]
     isnothing(previous) || push!(candidates, previous)
     for part in parts
-        part isa Distribution && (m = factor_mean(part); isnothing(m) || push!(candidates, m))
+        m = part isa Distribution ? factor_mean(part) : pushed_mean(part)
+        isnothing(m) || push!(candidates, m)
     end
     dimension = product_dimension(parts, previous)
     # A product that does not tell its dimension, such as a likelihood's message alone, is taken
@@ -145,6 +146,8 @@ function product_dimension(parts, previous)
     for part in parts
         part isa Distribution{Univariate} && return 0
         part isa Distribution{Multivariate} && return length(part)
+        m = pushed_mean(part)
+        isnothing(m) || return m isa Real ? 0 : length(m)
         part isa ContinuousUnivariateLogPdf && return 0
         part isa ContinuousMultivariateLogPdf && DomainSets.dimension(support(part)) isa Integer && return DomainSets.dimension(support(part))
     end
