@@ -126,7 +126,7 @@ end
     end
     @test contains(message, "`nonsense` is not an approximation method of the Delta node")
     @test contains(message, "Unscented()") && contains(message, "Linearization()")
-    @test contains(message, "ExponentialFamilyProjection")
+    @test contains(message, "NaturalGradientPropagation") && !contains(message, "CVIProjection")
     @test DeltaApproximation(method = Unscented()).inverse === nothing
     @test DeltaApproximation(Linearization(), identity).inverse === identity
 

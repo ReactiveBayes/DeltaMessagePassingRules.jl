@@ -100,6 +100,14 @@ which RxInfer's fallback schemes (`LocalLaplace()`, `LaplacePropagation()`,
 
 - ExpectationApproximations, DomainSets and Compat are dependencies; BayesBase 1.7 and
   MessagePassingRulesBase 1.2 are required.
+- The errors and hints of a Delta node without a method no longer suggest `CVIProjection()`; they
+  name RxInfer's `fallback = NaturalGradientPropagation()` for messages that are not Gaussian.
+
+### Deprecated
+
+- `CVIProjection`: its constructors warn. Natural-gradient propagation, RxInfer's
+  `infer(...; fallback = NaturalGradientPropagation())`, replaces it, with no method on the Delta
+  node and no sampling. It will be removed in the next breaking release.
 
 ## [1.0.0] - 2026-10-12
 

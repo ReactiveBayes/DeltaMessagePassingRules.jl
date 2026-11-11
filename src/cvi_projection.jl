@@ -50,6 +50,13 @@ end
                     proposal_distribution = ProposalDistributionContainer{Any}(nothing),
                     sampling_strategy = FullSampling(10))
 
+!!! warning "Deprecated"
+    `CVIProjection` is deprecated, and its constructor warns once per call site. Natural-gradient
+    propagation, RxInfer's `infer(...; fallback = NaturalGradientPropagation())`, replaces it: it
+    needs no method on the Delta node, samples nothing, and its sites are in the family of each
+    variable, a Gaussian, a Gamma or a Beta, by the [`NaturalGradientForm`](@ref) of this
+    package. `CVIProjection` will be removed in the next breaking release.
+
 The Delta node's projection method, for [`DeltaApproximation`](@ref)`(method = CVIProjection())`:
 it samples the inputs, pushes the samples through the function, and projects the result onto an
 exponential family with ExponentialFamilyProjection. It takes messages of any family the
@@ -100,13 +107,25 @@ using DeltaMessagePassingRules, ExponentialFamilyProjection
 algorithm = DeltaApproximation(method = CVIProjection(sampling_strategy = MeanBased()))
 ```
 """
-Base.@kwdef struct CVIProjection{S, OF, IFS, PD, SS} <: MessagePassingRulesApproximations.AbstractApproximationMethod
-    outsamples::S = 100
-    out_prjparams::OF = nothing
-    in_prjparams::IFS = nothing
-    proposal_distribution::PD = ProposalDistributionContainer{Any}(nothing)
-    sampling_strategy::SS = FullSampling(10)
+struct CVIProjection{S, OF, IFS, PD, SS} <: MessagePassingRulesApproximations.AbstractApproximationMethod
+    outsamples::S
+    out_prjparams::OF
+    in_prjparams::IFS
+    proposal_distribution::PD
+    sampling_strategy::SS
+    function CVIProjection(outsamples::S, out_prjparams::OF, in_prjparams::IFS, proposal_distribution::PD, sampling_strategy::SS) where {S, OF, IFS, PD, SS}
+        Base.depwarn(
+            "`CVIProjection` is deprecated: natural-gradient propagation replaces it, RxInfer's `infer(...; fallback = NaturalGradientPropagation())`, which needs no method on the Delta node",
+            :CVIProjection,
+        )
+        return new{S, OF, IFS, PD, SS}(outsamples, out_prjparams, in_prjparams, proposal_distribution, sampling_strategy)
+    end
 end
+
+CVIProjection(;
+    outsamples = 100, out_prjparams = nothing, in_prjparams = nothing,
+    proposal_distribution = ProposalDistributionContainer{Any}(nothing), sampling_strategy = FullSampling(10),
+) = CVIProjection(outsamples, out_prjparams, in_prjparams, proposal_distribution, sampling_strategy)
 
 """
     get_kth_in_form(method::CVIProjection, k::Int)

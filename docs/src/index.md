@@ -49,8 +49,8 @@ true
 ## The site
 
 - [The Delta node](@ref delta-node): the node, its algorithm, its rules and their limitations;
-- [Projection](@ref delta-projection): [`CVIProjection`](@ref), the method for messages that are
-  not normal, and its sampling strategies;
+- [Projection](@ref delta-projection): [`CVIProjection`](@ref), deprecated, the method for
+  messages that are not normal, and its sampling strategies;
 - [Universal inference](@ref delta-universal): a rule fallback and three projections for
   models without rules, Delta nodes without a method among them: Laplace's approximation, the
   variational Gaussian, and the sites of Laplace propagation, expectation propagation and

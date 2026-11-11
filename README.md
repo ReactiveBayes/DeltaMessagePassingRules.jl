@@ -12,8 +12,9 @@ method the model names in `DeltaApproximation`:
 
 - `Unscented()` and `Linearization()`, from MessagePassingRulesApproximations, for normal
   messages;
-- `CVIProjection()`, sampling and projection onto an exponential family, for other families; its
-  rules are a package extension, loaded with `using ExponentialFamilyProjection`.
+- `CVIProjection()`, deprecated: sampling and projection onto an exponential family, for other
+  families, in a package extension loaded with `using ExponentialFamilyProjection`. RxInfer's
+  `fallback = NaturalGradientPropagation()` replaces it, with no method on the node.
 
 A known inverse of `f`, when given, sends the messages towards the inputs through it.
 
