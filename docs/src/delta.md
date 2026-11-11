@@ -70,8 +70,8 @@ node's default algorithm,
 two keywords:
 
 - `method`, required: [`Unscented`](@extref MessagePassingRulesApproximations.Unscented)`()`,
-  [`Linearization`](@extref MessagePassingRulesApproximations.Linearization)`()`, or
-  [`CVIProjection`](@ref)`()`, once ExponentialFamilyProjection is loaded;
+  [`Linearization`](@extref MessagePassingRulesApproximations.Linearization)`()`, or the
+  deprecated [`CVIProjection`](@ref)`()`, once ExponentialFamilyProjection is loaded;
 - `inverse`, default `nothing`: a known inverse of `f`, or a tuple of them, one per input.
 
 The two forms of the algorithm declare different

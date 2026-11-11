@@ -126,7 +126,7 @@ end
     end
     @test contains(message, "`nonsense` is not an approximation method of the Delta node")
     @test contains(message, "Unscented()") && contains(message, "Linearization()")
-    @test contains(message, "ExponentialFamilyProjection")
+    @test contains(message, "NaturalGradientPropagation") && !contains(message, "CVIProjection")
     @test DeltaApproximation(method = Unscented()).inverse === nothing
     @test DeltaApproximation(Linearization(), identity).inverse === identity
 
@@ -150,6 +150,7 @@ end
     end
     @test err isa MessagePassingRulesBase.RuleNotFoundError
     @test contains(sprint(showerror, err), "for DeltaFn: a Delta node, `y := f(x)`, needs an approximation method")
+    @test contains(sprint(showerror, err), "fallback = LocalLaplace()")
     # Under its approximation, the node adds nothing.
     @test MessagePassingRulesBase.rule_not_found_hint(DeltaFn{typeof(f)}, MessagePassingRulesBase.RuleNotFound(:message, DeltaFn{typeof(f)}, nothing, DeltaApproximation(method = Linearization()), nothing)) === nothing
 end

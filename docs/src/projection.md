@@ -1,5 +1,12 @@
 # [Projection](@id delta-projection)
 
+!!! warning "Deprecated"
+    `CVIProjection` is deprecated, and its constructor warns. Natural-gradient propagation,
+    RxInfer's `infer(...; fallback = NaturalGradientPropagation())`, replaces it: the Delta node
+    needs no method, nothing is sampled, and each variable's sites are in its own family, a
+    Gaussian, a Gamma or a Beta (see [Natural-gradient propagation](@ref delta-universal-ngmp)).
+    `CVIProjection` will be removed in the next breaking release.
+
 [`CVIProjection`](@ref) handles the functions and message families that the Gaussian methods
 cannot. It draws samples of the inputs, pushes the samples through `f`, and projects the result
 onto an exponential family with
