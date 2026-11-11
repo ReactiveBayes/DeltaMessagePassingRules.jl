@@ -38,8 +38,13 @@ function deterministic_joint(node, members, algorithm, ctx, args)
     order = input_order(node, Tuple(key for key in map(first, inputs) if key !== :out))
     isnothing(order) && return nothing
     incoming = map(key -> messages[key], order)
-    is_cluster_input(incoming) || return nothing
     outbound = messages[:out]
+    # a single input that is a vector: its marginal, by Laplace over its components
+    if length(incoming) == 1 && only(incoming) isa Distribution{Multivariate}
+        density = only(incoming)
+        return vector_laplace(u -> message_logdensity(outbound, f(u)) + logpdf(density, u), density)
+    end
+    is_cluster_input(incoming) || return nothing
     own(i) = isempty(interface_groups(node)) ?
         own_message(node, order[i], algorithm, ctx, ((:out => outbound), pairs_except(Tuple(order), incoming, i)...), ()) : nothing
     return cluster_laplace(u -> message_logdensity(outbound, f(u...)) + incoming_logpdf(incoming, u), Tuple(order), incoming, own)
@@ -100,6 +105,14 @@ function joint_laplace(logp, incoming)
     domain = all(d -> d isa EA.RealLine, domains) ? EA.RealLine() : EA.Componentwise(domains...)
     x0 = [mean(density) for density in incoming]
     result = EA.laplace(logp, x0, domain)
+    outcome = (method = :joint_laplace, converged = result.converged, iterations = result.iterations)
+    return with_outcome(exponential_family_gaussian(result.distribution), outcome)
+end
+
+# Laplace for a vector, from its message's mean, in the message's domain
+function vector_laplace(logp, density)
+    domain = something(EA.domain(density), EA.RealLine())
+    result = EA.laplace(logp, mean(density), domain)
     outcome = (method = :joint_laplace, converged = result.converged, iterations = result.iterations)
     return with_outcome(exponential_family_gaussian(result.distribution), outcome)
 end

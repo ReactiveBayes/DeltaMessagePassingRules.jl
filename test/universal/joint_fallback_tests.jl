@@ -48,6 +48,14 @@ end
     Λ = [3.0 2.0; 2.0 2.5]
     @test mean(joint) ≈ Λ \ [2.0, 2.0]
     @test cov(joint) ≈ inv(Λ)
+
+    # The same with one input that is a vector: its marginal.
+    sumv(x) = x[1] + x[2]
+    args = RuleArgs(m = (out = NormalMeanVariance(1.0, 0.5), in = (MvNormalMeanCovariance([0.0, 0.0], [1.0 0.0; 0.0 2.0]),)))
+    joint, outcome = MessagePassingRulesBase.unwrap_outcome(D.message(sumv, ClusterTarget((:in,)), args))
+    @test outcome.method === :joint_laplace && outcome.converged
+    @test mean(joint) ≈ Λ \ [2.0, 2.0]
+    @test cov(joint) ≈ inv(Λ)
 end
 
 @testitem "ExpectationRuleFallback: average energies, mean-field and joint" tags = [:universal] setup = [UniversalNodes] begin
