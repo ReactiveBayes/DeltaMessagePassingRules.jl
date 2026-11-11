@@ -19,8 +19,9 @@ A known inverse of `f`, when given, sends the messages towards the inputs throug
 
 The package also gives the pieces of *universal inference*, for nodes with no rules at all and
 beliefs with no closed form: `ExpectationRuleFallback`, which computes a node's messages from its
-log-density, and the projections `LaplaceForm`, `VariationalForm` and `MomentForm`, with the
-sites of Laplace propagation and expectation propagation. RxInfer combines them in its fallback
+log-density, and the projections `LaplaceForm`, `VariationalForm`, `MomentForm` and
+`NaturalGradientForm`, with the sites of Laplace propagation, expectation propagation and
+natural-gradient propagation, the last in any exponential family. RxInfer combines them in its fallback
 schemes, `infer(...; fallback = LocalLaplace())` and its siblings; the documentation's "Universal
 inference" page explains each.
 

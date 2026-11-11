@@ -45,12 +45,14 @@ using MessagePassingRulesBase: IndexedTarget, ClusterTarget, cluster_members, No
 using BayesBase: FactorizedJoint, expectation, prepare_expectation
 using ExpectationApproximations: ExpectationApproximations
 using DomainSets: DomainSets
-using LinearAlgebra: LinearAlgebra, Symmetric, cholesky, dot, issuccess, logdet, tr
+using LinearAlgebra: LinearAlgebra, Symmetric, cholesky, dot, isposdef, issuccess, logdet, norm, tr
 using ForwardDiff: ForwardDiff
 using Compat: @compat
 
 export DeltaFn, DeltaApproximation, is_delta_node_compatible
 export CVIProjection, CVISamplingStrategy, FullSampling, MeanBased, ProposalDistributionContainer
+
+const EA = ExpectationApproximations
 
 include("node.jl")
 include("approximate.jl")
@@ -62,10 +64,10 @@ include("laplace_form.jl")
 include("variational_form.jl")
 include("moment_form.jl")
 include("cavity.jl")
+include("natural_gradient_form.jl")
 
-const EA = ExpectationApproximations
 
 # Universal inference: public, not exported
-@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, site, cavity_energy, PushforwardMessage, TiltedJointMessage, same_message, same_density
+@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, NaturalGradientForm, natural_gradient_target, site, cavity_energy, PushforwardMessage, TiltedJointMessage, same_message, same_density
 
 end

@@ -23,9 +23,9 @@ infer(model = model(), data = data, fallback = LocalLaplace())
 | RxInfer's scheme | The rule fallback | The projection | What it is |
 |---|---|---|---|
 | `LocalLaplace()` | [`ExpectationRuleFallback`](@ref)`()` | [`LaplaceForm`](@ref), on every belief | Laplace's approximation of each belief on its own, at its mode |
-| `CVI()` | [`ExpectationRuleFallback`](@ref)`()` | [`VariationalForm`](@ref), on every belief | the Gaussian closest to each belief, the fixed point of conjugate-computation variational inference |
 | `LaplacePropagation()` | [`ExpectationRuleFallback`](@ref)`(LaplaceForm())` | [`LaplaceForm`](@ref), on each edge's site | Laplace propagation, see [Cavity propagation](@ref delta-universal-cavity) |
 | `ExpectationPropagation()` | [`ExpectationRuleFallback`](@ref)`(MomentForm())` | [`MomentForm`](@ref), on each edge's site | expectation propagation, see [Cavity propagation](@ref delta-universal-cavity) |
+| `NaturalGradientPropagation()` | [`ExpectationRuleFallback`](@ref)`(NaturalGradientForm())` | [`NaturalGradientForm`](@ref), on each edge's site in any exponential family; [`VariationalForm`](@ref) on the beliefs without sites | natural-gradient propagation, see [Natural-gradient propagation](@ref delta-universal-ngmp) |
 
 The scheme also sets the expectation backend the fallback computes with, by default the
 backends loaded in the session, such as ExpectationApproximations' `EADefault()`. A node with a
@@ -113,7 +113,7 @@ DeltaMessagePassingRules.ExpectedLogDensity
 
 ### Why projecting each belief is not enough
 
-Under `LocalLaplace()` and `CVI()`, every product with no closed form is projected on its own. A
+Under `LocalLaplace()`, every product with no closed form is projected on its own. A
 variable with `K` connections has `K + 1` such products, its marginal and its `K` outbound
 messages, and each holds the same raw message from a likelihood. That message is approximated
 `K + 1` times, separately, and the approximations need not agree: the marginal and the messages
@@ -230,7 +230,7 @@ the local terms no longer add up to the global free energy (they differed by 0.3
 count series).
 
 At a fixed point the free energy approximates `-log p(y)`, but it is not a bound: a lower value is
-not a better approximation, unlike the evidence lower bound of `CVI()`.
+not a better approximation.
 
 ```@docs
 DeltaMessagePassingRules.cavity_energy
@@ -242,3 +242,120 @@ DeltaMessagePassingRules.cavity_energy
   *Divergence measures and message passing*, Microsoft Research technical report, 2005.
 - A. J. Smola, S. V. N. Vishwanathan and E. Eskin, *Laplace propagation*, Advances in Neural
   Information Processing Systems 16, 2004.
+
+## [Natural-gradient propagation](@id delta-universal-ngmp)
+
+Natural-gradient propagation (Lukashchuk, Yemets, Ledbetter and Şenöz, *Information Geometry of
+Message Passing*, 2026) keeps the sites of cavity propagation, one per edge of a random variable,
+and the messages the fallback sends, belief propagation's: a node's log-density, its pushforward
+towards a deterministic node's output, its factor integrated against the other edges' messages.
+It changes how a site follows its message, and in which family it lives.
+
+### The target and the step
+
+On an edge with a raw message, whose log-density is `ℓ`, and a marginal `q`, the cavity times the
+edge's site, in an exponential family with sufficient statistics `T` and Fisher information `G`,
+the site's target is
+
+```math
+\eta^\star = G(q)^{-1} \operatorname{Cov}_q[T(x), \ell(x)] = \nabla_\mu \mathbb{E}_q[\ell],
+```
+
+in natural parameters, the gradient of the expected log-message in the mean parameters `μ` of
+`q`, which [`natural_gradient_target`](@ref) computes. In a Gaussian family it is Stein's lemma,
+`Λ⋆ = -E_q[∇²ℓ]` and `ξ⋆ = E_q[∇ℓ] + Λ⋆ m`, taken from `ℓ`'s values only. The site moves from
+its last natural parameters `η` towards the target by a damped heavy-ball step,
+
+```math
+v \leftarrow \beta v + \alpha (\eta^\star - \eta), \qquad \eta \leftarrow \eta + v,
+```
+
+with the velocity `v` shortened to `max_step` and halved until the marginal is proper. Both, `η`
+and `v`, are the state of the edge, which the engine keeps in the site's outcome. At a fixed point
+each site is its target and each marginal satisfies `λ = λ_prior + Σ_k ∇_μ E_q[ℓ_k]`: the
+stationarity of the variational free energy over the family. Under Gaussian cavities this is
+the fixed point of conjugate-computation variational inference (Khan and Lin, 2017): for a model
+with one latent variable, the variational Gaussian of the joint.
+
+[`site`](@ref) with a [`NaturalGradientForm`](@ref) takes one step. Here the log-normal of a
+normal pushed through `exp` meets a Gamma cavity, as a rate with a Poisson count and a log-normal
+prior does: its site is a Gamma. Repeated, the step settles where the site is its own target:
+
+```@example universal
+import DeltaMessagePassingRules: NaturalGradientForm, PushforwardMessage, natural_gradient_target, site
+
+lognormal = PushforwardMessage(exp, (NormalMeanVariance(1.0, 0.5),))
+cavity = GammaShapeRate(5.0, 1.0)            # a count of 4: its message is Gamma(5, 1)
+form = NaturalGradientForm()
+step = site(form, lognormal, cavity)
+for _ in 1:60
+    global step = site(form, lognormal, cavity, step.outcome)
+end
+step.site, step.outcome.converged
+```
+
+```@example universal
+marginal = prod(GenericProd(), cavity, step.site)
+natural_gradient_target(lognormal, marginal, nothing) ≈ step.outcome.η
+```
+
+### Sites in any exponential family
+
+A site is in the family of its cavity, the product of the variable's other sites, rather than
+always a Gaussian:
+
+- a closed message of that family, a Gaussian towards a Gaussian or a Gamma towards a Gamma, is
+  its own site, so conjugate parts of a model do not change;
+- a Gaussian cavity gives a Gaussian site, in weighted-mean form, a Gamma cavity a Gamma site,
+  `GammaShapeRate`, and any other continuous family with one dimension, such as a Beta, an
+  `ExponentialFamilyDistribution` of it, so that the products of sites, proper or not, are closed;
+- a raw message, or a closed one of another family such as a log-normal towards a Gamma, steps;
+- a cavity in no such family, a discrete one or a multivariate one that is not a Gaussian, lets
+  the message pass, and the variable's belief is projected as a product, onto its
+  [`VariationalForm`](@ref) Gaussian, as is the belief of a variable with one connection.
+
+The first step starts from the flat site, `η = 0`, so that the marginal is the cavity, which must
+be proper: a prior, or an initial message. A raw message with no cavity yet waits. The variable's
+family is the first one its sites take: the prior's, when its message arrives first.
+
+The target's expectations are by Gauss–Hermite points in a Gaussian family. In any other, they are
+by Gauss–Legendre points in the unconstrained coordinate of the domain, `log x` for a Gamma: its
+statistics hold `log x`, whose expectation Gauss–Laguerre points, exact for polynomials, reach only
+slowly at a small shape. `NaturalGradientForm(backend = …)` takes another backend. Packages add a
+closed form of the target with a method of [`natural_gradient_target`](@ref) for their message
+type and the family of `q`.
+
+### The free energy
+
+The fixed point is a stationary point of the Bethe free energy with each node's average energy
+under the marginals, `-E_q[log f]`, rather than of expectation propagation's: the rule fallback
+takes the average energy, `ExpectationRuleFallback(NaturalGradientForm()).energy === :average`.
+On a Gaussian tree whose only non-conjugate factors are leaves it is the negative evidence lower
+bound; elsewhere it is a diagnostic, which need not decrease from one iteration to the next.
+
+### Limits
+
+- **Momentum without transport.** The velocity of the heavy ball is carried from one marginal to
+  the next in natural parameters as they are, without the vector transport of the information
+  geometry; the defaults damp enough for long chains, with the step halving that keeps every
+  marginal proper.
+- **No convergence guarantee.** The iteration is a fixed-point scheme of natural gradients, one
+  site at a time; it converges on the models above, but nothing proves it does on all.
+- **Non-Gaussian other inputs.** The message towards one input of a node whose other inputs are
+  not all Gaussians or point masses, such as a Gamma precision, is the expected log-density
+  `E[log f]` rather than belief propagation's: one natural-gradient step on it is non-conjugate
+  variational message passing.
+- **Pushforwards.** A deterministic node's pushforward has its own density for one input through a
+  monotone function; otherwise its log-density is its moment-matched Gaussian's.
+
+```@docs
+NaturalGradientForm
+DeltaMessagePassingRules.natural_gradient_target
+```
+
+### References
+
+- M. Lukashchuk, K. Yemets, A. Ledbetter and İ. Şenöz, *Information geometry of message passing*,
+  arXiv:2608.15922, 2026.
+- M. E. Khan and W. Lin, *Conjugate-computation variational inference: converting variational
+  inference in non-conjugate models to inferences in conjugate models*, AISTATS 2017.

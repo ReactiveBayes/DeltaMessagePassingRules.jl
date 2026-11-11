@@ -43,7 +43,7 @@ function site(form, message, cavity, previous = nothing)
 end
 
 """
-    PushforwardMessage(f, inputs)
+    PushforwardMessage(f, inputs, backend = nothing)
 
 The message of a deterministic node `out = f(in...)` towards `out` under cavity propagation: the
 pushforward of its inputs' messages, `inputs`, the cavities of its inputs, through `f`,
@@ -53,13 +53,105 @@ the output's cavity `c_out` ([`site`](@ref)): of the tilted density of the input
 `f` linearised at its mode for a [`LaplaceForm`](@ref), less `c_out`. Expectation propagation's
 site of the node in the output's direction; it needs no input's message to be proper, only the
 tilted density to be.
+
+Under a [`NaturalGradientForm`](@ref) its site is a step towards the natural-gradient target of
+its log-density, `logpdf(message, z)`:
+
+- with one random input, a proper distribution of numbers, and `f` strictly monotone over it, the
+  pushforward's own density, `log c(x) - log |f'(x)|` at `x = f⁻¹(z)`, `f` inverted by bisection:
+  a log-normal through `exp`. Monotone means a derivative of one sign over the input's median ± 8
+  of its standard deviations, both in the unconstrained coordinate of its domain;
+- otherwise the density of the pushforward's moment-matched Gaussian, by `backend` over the
+  inputs (`nothing` for `ExpectationApproximations.EADefault()`), exact where `f` is linear.
 """
-struct PushforwardMessage{F, I}
+struct PushforwardMessage{F, I, B}
     f::F
     inputs::I
+    backend::B
 end
 
+PushforwardMessage(f, inputs) = PushforwardMessage(f, inputs, nothing)
+
 is_closed_form(::PushforwardMessage) = false
+
+BayesBase.insupport(::PushforwardMessage, z) = true
+BayesBase.logpdf(message::PushforwardMessage, z) = log_density_function(message)(z)
+
+# The pushforward's log-density, prepared once: through the inverse of a monotone function of a
+# single input, in the unconstrained coordinate of the input's domain, or of its moment-matched
+# Gaussian
+function log_density_function(message::PushforwardMessage)
+    inputs = message.inputs
+    free = Tuple(i for i in eachindex(inputs) if !(inputs[i] isa PointMass))
+    if length(free) == 1 && inputs[only(free)] isa ContinuousUnivariateDistribution && is_proper_message(inputs[only(free)])
+        input = inputs[only(free)]
+        f = x -> message.f(map(i -> i in free ? x : mean(inputs[i]), Tuple(eachindex(inputs)))...)
+        domain = something(EA.domain(input), EA.RealLine())
+        g = u -> f(EA.forward(domain, u))
+        u0, s = unconstrained_location_scale(input, domain)
+        if is_monotone(g, u0, s)
+            return function (z)
+                u = invert_monotone(g, z, u0, s)
+                isnothing(u) && return -Inf
+                x = EA.forward(domain, u)
+                return logpdf(input, x) - log(abs(ForwardDiff.derivative(f, x)))
+            end
+        end
+    end
+    all(is_proper_message, inputs) || return z -> NaN
+    backend = something(message.backend, EA.EADefault())
+    m, V = EA.mean_cov(backend, x -> message.f(x...), FactorizedJoint(inputs))
+    gaussian = m isa Real ? NormalMeanVariance(m, V) : MvNormalMeanCovariance(m, V)
+    return z -> logpdf(gaussian, z)
+end
+
+# Where an input lies in the unconstrained coordinate of its domain: its median, and half the
+# distance between its 16% and 84% quantiles, a Gaussian's standard deviation
+function unconstrained_location_scale(input, domain)
+    input isa UnivariateNormalDistributionsFamily && return (mean(input), std(input))
+    u(p) = EA.inverse(domain, quantile(input, p))
+    return (u(0.5), (u(0.8413447460685429) - u(0.15865525393145707)) / 2)
+end
+
+# Whether `g` maps numbers to numbers with a derivative of one sign over `m ± 8s`, nonzero over
+# `m ± 2s`: a function that saturates, such as `tanh`, has a derivative that underflows to zero
+# far out
+function is_monotone(g, m, s)
+    (isfinite(m) && isfinite(s) && s > 0) || return false
+    steps = -8:0.25:8
+    derivatives = try
+        [ForwardDiff.derivative(g, m + s * u) for u in steps]
+    catch error
+        error isa Union{MethodError, DomainError, ArgumentError, DimensionMismatch} || rethrow()
+        return false
+    end
+    all(isfinite, derivatives) || return false
+    inner = derivatives[abs.(steps) .<= 2]
+    return (all(>=(0), derivatives) && all(>(0), inner)) || (all(<=(0), derivatives) && all(<(0), inner))
+end
+
+# `x` with `g(x) = z`, for a monotone `g`: bracketed by steps that double away from `m`, then
+# bisected; `nothing` for a `z` outside the range of `g`
+function invert_monotone(g, z, m, s)
+    increasing = ForwardDiff.derivative(g, m) > 0
+    below(x) = (g(x) < z) == increasing
+    side = below(m)
+    direction = side ? 1 : -1
+    a, b, width = m, m, s
+    for _ in 1:1100
+        b = m + direction * width
+        below(b) != side && break
+        a, width = b, 2 * width
+        isfinite(width) || return nothing
+    end
+    below(b) == side && return nothing
+    for _ in 1:200
+        c = (a + b) / 2
+        (c == a || c == b) && break
+        below(c) == side ? (a = c) : (b = c)
+    end
+    return (a + b) / 2
+end
 
 function site(form, message::PushforwardMessage, cavity, previous = nothing)
     cavity isa Union{Missing, GaussianMessage} || return (; site = message, outcome = (; method = :passed))

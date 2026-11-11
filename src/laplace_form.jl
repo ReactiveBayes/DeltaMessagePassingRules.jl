@@ -62,7 +62,7 @@ laplace_form(form::LaplaceForm, density, previous = nothing) = project_form(form
 # The projection of a form: closed forms, point masses and finite discrete products alike, any
 # other product by the form's own method, `continuous_form`
 function project_form(form, density, previous)
-    is_closed_form(density) && return (; distribution = density, logZ = nothing, mode = previous, converged = true, iterations = 0, method = :closed_form)
+    is_closed_form(density) && return (; distribution = closed_distribution(density), logZ = nothing, mode = previous, converged = true, iterations = 0, method = :closed_form)
     parts = factors(density)
     point = findfirst(part -> part isa PointMass, parts)
     isnothing(point) || return point_mass_form(density, parts, parts[point])
@@ -73,6 +73,12 @@ end
 
 # A closed form passes: anything but a product with no closed form or a log-density alone
 is_closed_form(density) = !(density isa Union{ProductOf, LinearizedProductOf, NodeFunctionLogPdf, ContinuousUnivariateLogPdf, ContinuousMultivariateLogPdf})
+
+# A closed form as it passes: a proper `ExponentialFamilyDistribution`, the product of the sites of
+# natural-gradient propagation in a family other than the Gaussians and the Gammas, as its
+# distribution, such as a `Beta`
+closed_distribution(density) = density
+closed_distribution(density::ExponentialFamilyDistribution) = isproper(density) ? convert(Distribution, density) : density
 
 # The factors of a product, nested or linearised, in order
 factors(density::ProductOf) = (factors(BayesBase.getleft(density))..., factors(BayesBase.getright(density))...)

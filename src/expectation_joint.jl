@@ -120,9 +120,10 @@ function joint_slots(node, members, keys)
 end
 
 # The average energy -E_q[log f] of a stochastic node under its clusters' marginals; under cavity
-# propagation, with the node's inbound messages given, EP's term instead
+# propagation with the cavity energy, with the node's inbound messages given, EP's term instead
 function MessagePassingRulesBase.call_energy_fallback(fallback::ExpectationRuleFallback, node, algorithm, ctx, args)
-    isnothing(fallback.propagation) || isempty(rule_inputs(node, args.m)) || return cavity_energy(fallback.propagation, node, ctx, args)
+    (isnothing(fallback.propagation) || fallback.energy === :average || isempty(rule_inputs(node, args.m))) ||
+        return cavity_energy(fallback.propagation, node, ctx, args)
     (sdtype(node) isa Stochastic && applicable(nodefunction, node)) || return nothing
     inputs = rule_inputs(node, args.q)
     slots = energy_slots(node, map(first, inputs))

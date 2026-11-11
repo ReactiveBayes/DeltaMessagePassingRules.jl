@@ -1,6 +1,6 @@
 """
     ExpectationRuleFallback()
-    ExpectationRuleFallback(propagation)
+    ExpectationRuleFallback(propagation; energy = …)
 
 A rule fallback for universal inference: where no rule fits, the messages, joint marginals and
 average energies of a node, computed from its log-density with the expectation backend of the
@@ -32,10 +32,10 @@ Unlike [`NodeFunctionRuleFallback`](@extref MessagePassingRulesBase.NodeFunction
 which plugs in the inputs' means, the message keeps their spread: a categorical's probabilities and
 a Gaussian's variance.
 
-Under cavity propagation, `ExpectationRuleFallback(propagation)` takes the projection of the
-variables' sites, a [`LaplaceForm`](@ref) (Laplace propagation) or a [`MomentForm`](@ref)
-(expectation propagation), and sends messages that the sites project, rather than ones that are
-projected on their own:
+Under cavity propagation, `ExpectationRuleFallback(propagation)` takes the form of the
+variables' sites, a [`LaplaceForm`](@ref) (Laplace propagation), a [`MomentForm`](@ref)
+(expectation propagation) or a [`NaturalGradientForm`](@ref) (natural-gradient propagation), and
+sends messages that the sites project, rather than ones that are projected on their own:
 
 - towards `out` of a deterministic node, the pushforward of its inputs' messages, unprojected, a
   [`PushforwardMessage`](@ref);
@@ -45,8 +45,11 @@ projected on their own:
   precision, or that comes as a mean-field marginal, keeps the expected log-density above;
 - every other message as above.
 
-Its free-energy term is then expectation propagation's, [`cavity_energy`](@ref), when the engine
-gives it the node's inbound messages as well as the marginals.
+Its free-energy term is `energy`: `:cavity`, expectation propagation's, [`cavity_energy`](@ref),
+when the engine gives it the node's inbound messages as well as the marginals, the default for a
+`LaplaceForm` and a `MomentForm`; or `:average`, the average energy `-E_q[log f]` under the
+marginals, as without propagation, the default for a `NaturalGradientForm`, whose fixed point is a
+stationary point of the free energy with these terms.
 
 # Throws
 An `ArgumentError` when the context has no expectation backend. RxInfer's fallback schemes, such
@@ -57,9 +60,19 @@ See also [`LaplaceForm`](@ref), [`site`](@ref).
 """
 struct ExpectationRuleFallback{P}
     propagation::P
+    energy::Symbol
+    function ExpectationRuleFallback(propagation::P, energy::Symbol) where {P}
+        energy ∈ (:cavity, :average) || throw(ArgumentError("`energy` is `:cavity` or `:average`, got `:$(energy)`"))
+        return new{P}(propagation, energy)
+    end
 end
 
-ExpectationRuleFallback() = ExpectationRuleFallback(nothing)
+ExpectationRuleFallback(propagation = nothing; energy::Symbol = default_energy(propagation)) = ExpectationRuleFallback(propagation, energy)
+
+# The free-energy term of a node without rules: the average energy without sites, expectation
+# propagation's under a site form, but `NaturalGradientForm`'s
+default_energy(::Nothing) = :average
+default_energy(propagation) = :cavity
 
 function MessagePassingRulesBase.call_fallback(fallback::ExpectationRuleFallback, node, target::Union{Target, IndexedTarget}, algorithm, ctx, args)
     sdtype(node) isa Deterministic && return deterministic_message(node, target, ctx, args, fallback.propagation)
@@ -234,7 +247,7 @@ function deterministic_message(node, target, ctx, args, propagation = nothing)
     if target isa Target{:out}
         inputs = map(key -> values[key], order)
         (isnothing(propagation) || all(input -> input isa PointMass, inputs)) && return pushforward_message(f, inputs, ctx)
-        return PushforwardMessage(f, Tuple(inputs))
+        return PushforwardMessage(f, Tuple(inputs), expectation_backend(ctx))
     end
     haskey(values, :out) || return nothing
     return pullback_message(f, values[:out], order, target, values, ctx, args, propagation)

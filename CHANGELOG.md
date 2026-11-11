@@ -9,8 +9,8 @@ All notable changes to DeltaMessagePassingRules.jl are documented here. The form
 ### Added
 
 The pieces of universal inference, for nodes without rules and beliefs without a closed form,
-which RxInfer's fallback schemes (`LocalLaplace()`, `CVI()`, `LaplacePropagation()`,
-`ExpectationPropagation()`) combine. All are public and not exported; the new documentation page
+which RxInfer's fallback schemes (`LocalLaplace()`, `LaplacePropagation()`,
+`ExpectationPropagation()`, `NaturalGradientPropagation()`) combine. All are public and not exported; the new documentation page
 "Universal inference" explains them.
 
 - `ExpectationRuleFallback`, a rule fallback that computes a node's messages, joint marginals and
@@ -43,8 +43,8 @@ which RxInfer's fallback schemes (`LocalLaplace()`, `CVI()`, `LaplacePropagation
 - `VariationalForm` and `variational_form`, `LaplaceForm`'s sibling: the Gaussian that minimises
   `KL(q ‖ p)` of a belief, in the same coordinates, through ExpectationApproximations'
   `gaussian_variational`, with the evidence lower bound as the log of the normaliser. It is the
-  fixed point of conjugate-computation variational inference, and under mean field the optimal
-  Gaussian.
+  fixed point of conjugate-computation variational inference, under mean field the optimal
+  Gaussian, and natural-gradient propagation's projection of the beliefs that have no sites.
 - `MomentForm(; tol, maxiters, nomode, points, backend)` and `moment_form`, the sibling for
   expectation propagation: the Gaussian with the product's moments, by ExpectationApproximations'
   `moment_matching`, whose points sit on the product's own Laplace approximation. Its quadrature
@@ -70,6 +70,29 @@ which RxInfer's fallback schemes (`LocalLaplace()`, `CVI()`, `LaplacePropagation
     comes as a mean-field marginal, keeps the expected log-density;
   - `same_message` and `same_density`, which compare raw messages and Gaussians to a tolerance, so
     that a site need not be projected again.
+- Natural-gradient propagation (Lukashchuk et al., *Information Geometry of Message Passing*):
+  - `NaturalGradientForm(; alpha = 0.5, beta = 0.2, max_step = Inf, tol = 1e-8, backend = nothing)`,
+    a third site form: `site(::NaturalGradientForm, message, cavity, previous)` takes a damped
+    heavy-ball step from the edge's previous site, `previous.η` and `previous.velocity`, towards
+    the message's natural-gradient target, halved until the marginal is proper. The outcome is
+    `(; method = :natural_gradient, converged, iterations, η, velocity)`;
+  - its sites are in the family of the cavity, any exponential family: a Gaussian of any dimension
+    in weighted-mean form, a Gamma as `GammaShapeRate`, and another continuous family with one
+    dimension, such as a Beta, as an `ExponentialFamilyDistribution`. A closed message of the
+    family is its own site; a cavity in no family lets the message pass;
+  - `natural_gradient_target(message, q, backend)`, `G(q)⁻¹ Cov_q[T, ℓ]` in ExponentialFamily's
+    natural parameters of `q`'s family: by Stein's lemma for a Gaussian, from the log-density's
+    values only, and by the definition with ExponentialFamily's sufficient statistics and Fisher
+    information for any other family, with Gauss–Legendre points in the unconstrained coordinate
+    of its domain by default. Packages add closed forms by methods for their message types;
+  - `PushforwardMessage` has a log-density: the pushforward's own through a monotone function of a
+    single input, its moment-matched Gaussian's otherwise. It takes the backend of that
+    moment matching as a third field;
+  - `laplace_form`, `variational_form` and `moment_form` pass a proper `ExponentialFamilyDistribution`
+    as its distribution, such as a `Beta`.
+- `ExpectationRuleFallback(propagation; energy)`: the free-energy term of a node without rules,
+  `:cavity`, expectation propagation's, the default under a `LaplaceForm` or a `MomentForm`, or
+  `:average`, the average energy, the default under a `NaturalGradientForm` and without sites.
 - The hint of a Delta node without an approximation method names RxInfer's
   `fallback = LocalLaplace()`, which approximates every node without rules.
 

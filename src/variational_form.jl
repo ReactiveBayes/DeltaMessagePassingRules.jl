@@ -4,9 +4,12 @@
 A form constraint for universal inference, [`LaplaceForm`](@ref)'s variational sibling: the
 projection of a belief with no closed form onto the Gaussian that minimises `KL(q ‖ p)` in the
 unconstrained coordinates of its domain, by [`variational_form`](@ref), the fixed point of
-conjugate-computation variational inference (CVI). Under mean field, where a variable's belief is
-the product of its prior and the expected log-densities of [`ExpectationRuleFallback`](@ref), it is
+conjugate-computation variational inference. Under mean field, where a variable's belief is the
+product of its prior and the expected log-densities of [`ExpectationRuleFallback`](@ref), it is
 the optimal Gaussian; Laplace's method takes the mode and the curvature of the same product.
+Under natural-gradient propagation ([`NaturalGradientForm`](@ref)), whose fixed point in a
+Gaussian family is the same, it projects the beliefs that have no sites: those of a variable with
+one connection, or whose cavity is in no family with sites.
 
 - a closed form, a distribution or a point mass, passes as it is, so a conjugate variable never
   changes;
@@ -25,8 +28,8 @@ lower bound on it.
   message alone that rises without bound: `:project` keeps the last Gaussian, `:leave` leaves
   the product unprojected (see [`LaplaceForm`](@ref));
 - `backend`: the expectation backend of the bound's quadrature, a point set for a Gaussian;
-  `nothing`, the default, for `ExpectationApproximations.EADefault()`. RxInfer's `CVI` scheme
-  gives it the session's.
+  `nothing`, the default, for `ExpectationApproximations.EADefault()`. RxInfer's
+  `NaturalGradientPropagation` scheme gives it the session's.
 """
 struct VariationalForm{T <: Real, B}
     tol::T

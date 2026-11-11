@@ -53,6 +53,6 @@ true
   not normal, and its sampling strategies;
 - [Universal inference](@ref delta-universal): a rule fallback and three projections for
   models without rules, Delta nodes without a method among them: Laplace's approximation, the
-  variational Gaussian, and the sites of Laplace propagation and expectation propagation, which
-  RxInfer's fallback schemes combine;
+  variational Gaussian, and the sites of Laplace propagation, expectation propagation and
+  natural-gradient propagation, which RxInfer's fallback schemes combine;
 - [Internals](@ref delta-internals): the helpers the Gaussian rules share, for contributors.
