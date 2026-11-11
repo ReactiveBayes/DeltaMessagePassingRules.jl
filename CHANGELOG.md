@@ -28,7 +28,8 @@ which RxInfer's fallback schemes (`LocalLaplace()`, `LaplacePropagation()`,
     its members' messages, in the product of their domains, ExponentialFamily's Gaussian on the
     real line. Known members, data or constants, are blocks of their own in a
     `FactorizedCluster`; one member left is its own marginal, in closed form where the node has
-    the rule. The fallback says how the joint went, `with_outcome(joint, (method = :joint_laplace,
+    the rule; a Delta node's one vector input is its own joint, by Laplace too. The fallback
+    says how the joint went, `with_outcome(joint, (method = :joint_laplace,
     converged, iterations))`, for the engine's events and an inference report;
   - an average energy, `-E_q[log f]` under the clusters' marginals, joints and groups included, so
     the Bethe free energy is available under belief propagation and mean field alike.
