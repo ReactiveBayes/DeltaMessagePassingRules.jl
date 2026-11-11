@@ -126,7 +126,7 @@ MessagePassingRulesBase.rule_not_found_hint(::Type{<:DeltaFn}, notfound) =
     notfound.algorithm isa DeltaApproximation ? nothing :
     "a Delta node, `y := f(x)`, needs an approximation method: `Linearization()`, `Unscented()`, or `CVIProjection()` once ExponentialFamilyProjection is loaded. " *
     "In RxInfer, give it with `@algorithm begin f() -> Linearization() end` or `y := f(x) where { algorithm = Linearization() }`, " *
-    "or approximate every node without rules with `infer(...; fallback = LaplaceApproximation())`"
+    "or approximate every node without rules with `infer(...; fallback = LocalLaplace())`"
 
 function incompatible_method_message(method)
     shown = method isa Union{Number, Symbol, AbstractString, Type} ? string(method) : string(nameof(typeof(method)), "(…)")

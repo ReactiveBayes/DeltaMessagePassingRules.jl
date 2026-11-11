@@ -150,7 +150,7 @@ end
     end
     @test err isa MessagePassingRulesBase.RuleNotFoundError
     @test contains(sprint(showerror, err), "for DeltaFn: a Delta node, `y := f(x)`, needs an approximation method")
-    @test contains(sprint(showerror, err), "fallback = LaplaceApproximation()")
+    @test contains(sprint(showerror, err), "fallback = LocalLaplace()")
     # Under its approximation, the node adds nothing.
     @test MessagePassingRulesBase.rule_not_found_hint(DeltaFn{typeof(f)}, MessagePassingRulesBase.RuleNotFound(:message, DeltaFn{typeof(f)}, nothing, DeltaApproximation(method = Linearization()), nothing)) === nothing
 end

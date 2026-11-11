@@ -26,7 +26,7 @@ RxInfer through its option `default_form_constraint = LaplaceForm()`.
   default, keeps the Gaussian at the last iterate, whose curvature is floored; `:leave` leaves the
   product as it is, unprojected. A message is better left: a Gaussian Laplace did not find would
   feed an exact rule downstream, where the product unprojected goes to the rule fallback. RxInfer's
-  `LaplaceApproximation` projects marginals with `:project` and messages with `:leave`.
+  `LocalLaplace` projects marginals with `:project` and messages with `:leave`.
 """
 struct LaplaceForm{T <: Real}
     tol::T
