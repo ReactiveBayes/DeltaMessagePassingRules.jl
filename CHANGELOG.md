@@ -86,6 +86,11 @@ which RxInfer's fallback schemes (`LocalLaplace()`, `LaplacePropagation()`,
     values only, and by the definition with ExponentialFamily's sufficient statistics and Fisher
     information for any other family, with Gauss–Legendre points in the unconstrained coordinate
     of its domain by default. Packages add closed forms by methods for their message types;
+  - with ClosedFormExpectations loaded (a package extension), the target is in closed form
+    wherever ClosedFormExpectations' Williams product is, at a univariate Gaussian or a Gamma
+    belief, for a message whose log-density is a distribution's: a log-normal or a Laplace message,
+    or a Gamma message pulled back through `exp`. `closed_form_integrand(message)` gives a message
+    type its distribution, and `closed_form_target(p, q)` is the closed form, `nothing` without one;
   - `PushforwardMessage` has a log-density: the pushforward's own through a monotone function of a
     single input, its moment-matched Gaussian's otherwise. It takes the backend of that
     moment matching as a third field;

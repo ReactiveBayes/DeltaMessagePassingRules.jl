@@ -120,11 +120,53 @@ A package with a message type whose target has a closed form adds a method for i
 the family of `q`, such as `natural_gradient_target(::MyMessage, q::GammaDistributionsFamily, backend)`;
 it is then used in place of the quadrature. Such a raw message type also says it is not closed,
 `DeltaMessagePassingRules.is_closed_form(::MyMessage) = false`, so that it gets a site.
+
+When ClosedFormExpectations is loaded, the target is in closed form wherever its Williams product
+`E_q[ℓ ∇ log q]` is, for a message whose log-density is a distribution's: see
+[`closed_form_integrand`](@ref).
 """
 function natural_gradient_target end
 
-natural_gradient_target(message, q::GaussianMessage, backend) = gaussian_target(log_density_function(message), q, backend)
-natural_gradient_target(message, q, backend) = family_target(log_density_function(message), q, backend)
+function natural_gradient_target(message, q::GaussianMessage, backend)
+    target = closed_form_target_of(message, q)
+    return isnothing(target) ? gaussian_target(log_density_function(message), q, backend) : target
+end
+function natural_gradient_target(message, q, backend)
+    target = closed_form_target_of(message, q)
+    return isnothing(target) ? family_target(log_density_function(message), q, backend) : target
+end
+
+"""
+    closed_form_integrand(message)
+
+A distribution `p` whose log-density is `message`'s up to a constant, or `nothing`. When
+ClosedFormExpectations is loaded, the [`natural_gradient_target`](@ref) of such a message is in
+closed form wherever ClosedFormExpectations' Williams product `E_q[log p(x) ∇ log q(x)]` is, at a
+univariate Gaussian or a Gamma belief `q`; elsewhere it is by quadrature. The constant does not
+change the target, so `p` need not be normalised.
+
+A distribution is its own. With ClosedFormExpectations loaded, so is a Gamma message pulled back
+through `exp`, the message of a Poisson count towards its log rate: ClosedFormExpectations'
+`LogGamma`. A package with a message type of its own adds a method that returns such a
+distribution.
+"""
+closed_form_integrand(message) = nothing
+closed_form_integrand(message::Distribution) = message
+
+"""
+    closed_form_target(p, q)
+
+The natural-gradient target of the log-density of the distribution `p` at the belief `q` in closed
+form, as [`natural_gradient_target`](@ref)'s, or `nothing`. The extension of
+DeltaMessagePassingRules for ClosedFormExpectations defines it from ClosedFormExpectations'
+Williams product; without it, it is `nothing`.
+"""
+closed_form_target(p, q) = nothing
+
+function closed_form_target_of(message, q)
+    p = closed_form_integrand(message)
+    return isnothing(p) ? nothing : closed_form_target(p, q)
+end
 
 # `x ↦ ℓ(x)`, once per message: a pushforward prepares its density
 log_density_function(message) = x -> message_logdensity(message, x)

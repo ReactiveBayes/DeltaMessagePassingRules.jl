@@ -325,6 +325,13 @@ slowly at a small shape. `NaturalGradientForm(backend = …)` takes another back
 closed form of the target with a method of [`natural_gradient_target`](@ref) for their message
 type and the family of `q`.
 
+With [ClosedFormExpectations](https://github.com/biaslab/ClosedFormExpectations.jl) loaded, the
+target is in closed form wherever its Williams product `E_q[log p(x) ∇ log q(x)] = ∇ E_q[log p]`
+is, at a univariate Gaussian or a Gamma belief, for a message whose log-density is a distribution
+`p`'s, up to a constant: a log-normal or a Laplace message, or a Gamma message pulled back through
+`exp`, the message of a Poisson count towards its log rate. A package gives its own message type
+such a distribution with a method of [`closed_form_integrand`](@ref).
+
 ### The free energy
 
 The fixed point is a stationary point of the Bethe free energy with each node's average energy
@@ -351,6 +358,8 @@ bound; elsewhere it is a diagnostic, which need not decrease from one iteration 
 ```@docs
 NaturalGradientForm
 DeltaMessagePassingRules.natural_gradient_target
+DeltaMessagePassingRules.closed_form_integrand
+DeltaMessagePassingRules.closed_form_target
 ```
 
 ### References

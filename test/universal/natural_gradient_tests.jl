@@ -227,6 +227,49 @@ end
     @test result.outcome.η == [1.5, 0.0]
 end
 
+@testitem "natural_gradient_target: in closed form with ClosedFormExpectations" tags = [:universal] setup = [NaturalGradientClosedForms] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily
+    using MessagePassingRulesBase: NodeFunctionLogPdf
+    using ClosedFormExpectations: LogGamma
+    import DeltaMessagePassingRules: natural_gradient_target, closed_form_integrand, closed_form_target, PulledBack,
+        gaussian_target, family_target, log_density_function
+
+    # A Poisson count `y` through a log rate: the message on the rate, Gamma(y + 1, 1), pulled
+    # back through `exp`, is a `LogGamma`, also for `y = 0`, where it is not normalisable
+    for y in (0, 1, 7), (m, v) in ((0.3, 0.5), (-1.0, 2.0))
+        pulled = NodeFunctionLogPdf(PulledBack(exp, GammaShapeRate(y + 1.0, 1.0)))
+        q = NormalMeanVariance(m, v)
+        @test closed_form_integrand(pulled) isa LogGamma
+        ξ, Λ = gaussian_site_of_gamma(y + 1.0, 1.0, q)
+        closed = natural_gradient_target(pulled, q, nothing)
+        @test closed ≈ [ξ, -Λ / 2] rtol = 1.0e-12
+        @test closed ≈ gaussian_target(log_density_function(pulled), q, nothing) rtol = 1.0e-9
+    end
+
+    # A log-normal message at a Gamma belief
+    for (m, v) in ((0.5, 0.4), (-1.0, 3.0)), (a, b) in ((3.0, 2.0), (0.8, 0.5))
+        message, q = LogNormal(m, sqrt(v)), GammaShapeRate(a, b)
+        as, bs = gamma_site_of_lognormal(m, v, q)
+        @test closed_form_target(message, q) ≈ [as - 1, -bs] rtol = 1.0e-12
+        @test natural_gradient_target(message, q, nothing) == closed_form_target(message, q)
+        @test closed_form_target(message, q) ≈ family_target(log_density_function(message), q, nothing) rtol = 1.0e-8
+    end
+
+    # A Laplace message, `-|x - μ| / θ`, at a normal belief, which the quadrature handles poorly at
+    # the kink: `E[ℓ'] = (2Φ((μ - m)/σ) - 1) / θ` and `E[ℓ''] = -2 q(μ) / θ`
+    μ, θ, q = 0.5, 2.0, NormalMeanVariance(0.3, 0.8)
+    Λ = 2 * pdf(q, μ) / θ
+    ξ = (2 * cdf(Normal(mean(q), std(q)), μ) - 1) / θ + Λ * mean(q)
+    @test natural_gradient_target(Laplace(μ, θ), q, nothing) ≈ [ξ, -Λ / 2] rtol = 1.0e-12
+
+    # Without a closed form, the quadrature: a Beta message, a closure, a multivariate belief
+    @test isnothing(closed_form_target(Beta(2.0, 3.0), NormalMeanVariance(0.3, 0.8)))
+    @test isnothing(closed_form_integrand(NodeFunctionLogPdf(x -> -x^4)))
+    @test natural_gradient_target(NodeFunctionLogPdf(x -> -x^4), NormalMeanVariance(0.3, 0.8), nothing) ≈
+        gaussian_target(x -> -x^4, NormalMeanVariance(0.3, 0.8), nothing)
+    @test isnothing(closed_form_target(MvNormalMeanCovariance([0.0, 1.0], [1.0 0.0; 0.0 1.0]), MvNormalMeanCovariance([0.0, 0.0], [1.0 0.0; 0.0 1.0])))
+end
+
 @testitem "ExpectationRuleFallback: the free-energy term of each site form" tags = [:universal] begin
     using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily, MessagePassingRulesBase
     using MessagePassingRulesBase: RuleArgs, RuleContext, unwrap_outcome, call_energy_fallback

@@ -15,21 +15,25 @@ MessagePassingRulesApproximations = "36043009-14b3-4068-9fb9-f1e492c92d7d"
 MessagePassingRulesBase = "4a5b64c7-30c9-4471-82f2-bbe8464b157d"
 
 [weakdeps]
+ClosedFormExpectations = "70ff922c-62d4-418d-abfc-e284e489b734"
 ExponentialFamilyProjection = "17f509fa-9a96-44ba-99b2-1c5f01f0931b"
 
 # TEMPORARY: the universal-inference branches of these packages, until they are released.
 # ExpectationApproximations is private for now: its SSH URL needs access to it.
 [sources]
 BayesBase = {url = "https://github.com/ReactiveBayes/BayesBase.jl", rev = "universal-inference"}
+ClosedFormExpectations = {url = "https://github.com/biaslab/ClosedFormExpectations.jl", rev = "expectation-protocol"}
 ExpectationApproximations = {url = "git@github.com:ReactiveBayes/ExpectationApproximations.jl.git", rev = "universal-inference"}
 MessagePassingRulesBase = {url = "https://github.com/ReactiveBayes/MessagePassingRulesBase.jl", rev = "universal-inference"}
 
 [extensions]
+DeltaMessagePassingRulesClosedFormExpectationsExt = "ClosedFormExpectations"
 DeltaMessagePassingRulesProjectionExt = "ExponentialFamilyProjection"
 
 [compat]
 Aqua = "0.8"
 BayesBase = "1.7"
+ClosedFormExpectations = "0.5"
 Compat = "4.10"
 Distributions = "0.25"
 Documenter = "1"
@@ -51,6 +55,7 @@ julia = "1.10"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+ClosedFormExpectations = "70ff922c-62d4-418d-abfc-e284e489b734"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 ExponentialFamilyProjection = "17f509fa-9a96-44ba-99b2-1c5f01f0931b"
 MessagePassingRulesTestUtils = "08c5795c-a039-451c-8c5c-d65dcf644a97"
@@ -61,4 +66,4 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 
 [targets]
-test = ["Aqua", "Documenter", "ExponentialFamilyProjection", "MessagePassingRulesTestUtils", "Pkg", "SpecialFunctions", "StableRNGs", "Test", "TestItemRunner"]
+test = ["Aqua", "ClosedFormExpectations", "Documenter", "ExponentialFamilyProjection", "MessagePassingRulesTestUtils", "Pkg", "SpecialFunctions", "StableRNGs", "Test", "TestItemRunner"]

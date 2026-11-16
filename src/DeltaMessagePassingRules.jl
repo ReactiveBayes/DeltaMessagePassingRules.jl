@@ -68,6 +68,6 @@ include("natural_gradient_form.jl")
 
 
 # Universal inference: public, not exported
-@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, NaturalGradientForm, natural_gradient_target, site, cavity_energy, PushforwardMessage, TiltedJointMessage, same_message, same_density
+@compat public ExpectationRuleFallback, LaplaceForm, laplace_form, VariationalForm, variational_form, MomentForm, moment_form, NaturalGradientForm, natural_gradient_target, closed_form_integrand, closed_form_target, site, cavity_energy, PushforwardMessage, TiltedJointMessage, same_message, same_density
 
 end
