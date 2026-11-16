@@ -7,7 +7,7 @@
 
     # The target at N(m, v) of `ℓ(z) = (a - 1) z - b eᶻ`, a Gamma(a, b) message pulled back
     # through `λ = eᶻ`: with ρ = E[eᶻ], Λ⋆ = bρ and ξ⋆ = (a - 1) - bρ + bρ m
-    function gaussian_site_of_gamma(a, b, q)
+    function reference_gaussian_target_of_gamma(a, b, q)
         m, v = mean_var(q)
         Λ = b * exp(m + v / 2)
         return ((a - 1) - Λ + Λ * m, Λ)
@@ -15,14 +15,14 @@
 
     # The target at Gamma(a, b) of `ℓ(λ) = log LogNormal(λ | m, v)`, a normal message pushed
     # through `λ = eᶻ`, as its shape and rate
-    function gamma_site_of_lognormal(m, v, q)
+    function reference_gamma_target_of_lognormal(m, v, q)
         a, b = shape(q), rate(q)
         μ₁ = digamma(a) - log(b)
         κ = polygamma(2, a) / (2 * v * (a * trigamma(a) - 1))
         return ((m - μ₁) / v - a * κ, -b * κ)
     end
 
-    export gaussian_site_of_gamma, gamma_site_of_lognormal
+    export reference_gaussian_target_of_gamma, reference_gamma_target_of_lognormal
 end
 
 @testitem "natural_gradient_target: Gaussian beliefs, by Stein's lemma" tags = [:universal] setup = [NaturalGradientClosedForms] begin
@@ -35,7 +35,7 @@ end
     for (a, b, m, v) in ((4.0, 1.0, 0.0, 1.0), (2.0, 3.0, 0.5, 0.5), (1.0, 0.5, -1.0, 0.1), (13.0, 2.0, 1.0, 2.0))
         q = NormalMeanVariance(m, v)
         η = natural_gradient_target(NodeFunctionLogPdf(z -> (a - 1) * z - b * exp(z)), q, nothing)
-        ξ, Λ = gaussian_site_of_gamma(a, b, q)
+        ξ, Λ = reference_gaussian_target_of_gamma(a, b, q)
         @test η ≈ [ξ, -Λ / 2] rtol = 1.0e-10
         @test η ≈ getnaturalparameters(convert(ExponentialFamilyDistribution, NormalWeightedMeanPrecision(ξ, Λ))) rtol = 1.0e-10
     end
@@ -64,20 +64,24 @@ end
 @testitem "natural_gradient_target: any other family, against closed forms" tags = [:universal] setup = [NaturalGradientClosedForms] begin
     using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily
     using MessagePassingRulesBase: NodeFunctionLogPdf
-    import DeltaMessagePassingRules: natural_gradient_target, PushforwardMessage
+    import DeltaMessagePassingRules: natural_gradient_target, PushforwardMessage, family_target, log_density_function
     import ExpectationApproximations as EA
 
     # A Gamma belief and a log-normal message, as a distribution and as the pushforward of a
-    # normal through exp: the closed form, in natural parameters (a⋆ - 1, -b⋆), to 1e-9, small
-    # shapes included, where Gauss–Laguerre points are 10% off
+    # normal through exp: the quadrature against the closed form, in natural parameters
+    # (a⋆ - 1, -b⋆), to 1e-9, small shapes included, where Gauss–Laguerre points are 10% off. By
+    # `family_target` directly, so that the quadrature is tested even where ClosedFormExpectations,
+    # loaded by another test item, gives a distribution's target in closed form.
+    quadrature(message, q) = family_target(log_density_function(message), q, nothing)
     for (m, v, a, b) in ((0.0, 1.0, 2.0, 1.0), (1.5, 0.3, 5.0, 2.0), (-1.0, 2.0, 1.5, 0.5), (2.0, 0.05, 30.0, 3.0), (0.3, 4.0, 0.7, 1.2))
         q = GammaShapeRate(a, b)
-        as, bs = gamma_site_of_lognormal(m, v, q)
+        as, bs = reference_gamma_target_of_lognormal(m, v, q)
         for message in (LogNormal(m, sqrt(v)), PushforwardMessage(exp, (NormalMeanVariance(m, v),)))
+            @test quadrature(message, q) ≈ [as - 1, -bs] rtol = 1.0e-9
             @test natural_gradient_target(message, q, nothing) ≈ [as - 1, -bs] rtol = 1.0e-9
         end
         # the parametrisation of the belief does not matter
-        @test natural_gradient_target(LogNormal(m, sqrt(v)), Gamma(a, 1 / b), nothing) ≈ [as - 1, -bs] rtol = 1.0e-9
+        @test quadrature(LogNormal(m, sqrt(v)), Gamma(a, 1 / b)) ≈ [as - 1, -bs] rtol = 1.0e-9
     end
     # a given backend is used as it is: Gauss–Laguerre, whose error in `E[log λ]` falls as a power of
     # its points, set by the shape, is close at a large shape and far at a small one
@@ -232,7 +236,7 @@ end
     using MessagePassingRulesBase: NodeFunctionLogPdf
     using ClosedFormExpectations: LogGamma
     import DeltaMessagePassingRules: natural_gradient_target, closed_form_integrand, closed_form_target, PulledBack,
-        gaussian_target, family_target, log_density_function
+        gaussian_target, family_target, log_density_function, site, NaturalGradientForm
 
     # A Poisson count `y` through a log rate: the message on the rate, Gamma(y + 1, 1), pulled
     # back through `exp`, is a `LogGamma`, also for `y = 0`, where it is not normalisable
@@ -240,7 +244,7 @@ end
         pulled = NodeFunctionLogPdf(PulledBack(exp, GammaShapeRate(y + 1.0, 1.0)))
         q = NormalMeanVariance(m, v)
         @test closed_form_integrand(pulled) isa LogGamma
-        ξ, Λ = gaussian_site_of_gamma(y + 1.0, 1.0, q)
+        ξ, Λ = reference_gaussian_target_of_gamma(y + 1.0, 1.0, q)
         closed = natural_gradient_target(pulled, q, nothing)
         @test closed ≈ [ξ, -Λ / 2] rtol = 1.0e-12
         @test closed ≈ gaussian_target(log_density_function(pulled), q, nothing) rtol = 1.0e-9
@@ -249,7 +253,7 @@ end
     # A log-normal message at a Gamma belief
     for (m, v) in ((0.5, 0.4), (-1.0, 3.0)), (a, b) in ((3.0, 2.0), (0.8, 0.5))
         message, q = LogNormal(m, sqrt(v)), GammaShapeRate(a, b)
-        as, bs = gamma_site_of_lognormal(m, v, q)
+        as, bs = reference_gamma_target_of_lognormal(m, v, q)
         @test closed_form_target(message, q) ≈ [as - 1, -bs] rtol = 1.0e-12
         @test natural_gradient_target(message, q, nothing) == closed_form_target(message, q)
         @test closed_form_target(message, q) ≈ family_target(log_density_function(message), q, nothing) rtol = 1.0e-8
@@ -268,6 +272,17 @@ end
     @test natural_gradient_target(NodeFunctionLogPdf(x -> -x^4), NormalMeanVariance(0.3, 0.8), nothing) ≈
         gaussian_target(x -> -x^4, NormalMeanVariance(0.3, 0.8), nothing)
     @test isnothing(closed_form_target(MvNormalMeanCovariance([0.0, 1.0], [1.0 0.0; 0.0 1.0]), MvNormalMeanCovariance([0.0, 0.0], [1.0 0.0; 0.0 1.0])))
+
+    # A site's step goes to the closed form: from the flat site, an undamped step lands on the
+    # target at the cavity, a Poisson count of 2's message through `exp`
+    pulled = NodeFunctionLogPdf(PulledBack(exp, GammaShapeRate(3.0, 1.0)))
+    cavity = NormalMeanVariance(0.2, 0.6)
+    jump = site(NaturalGradientForm(alpha = 1.0, beta = 0.0), pulled, cavity)
+    ξ, Λ = reference_gaussian_target_of_gamma(3.0, 1.0, cavity)
+    @test jump.outcome.method === :natural_gradient
+    @test jump.outcome.η ≈ [ξ, -Λ / 2] rtol = 1.0e-12
+    @test jump.site isa NormalWeightedMeanPrecision
+    @test collect(weightedmean_precision(jump.site)) ≈ [ξ, Λ] rtol = 1.0e-12
 end
 
 @testitem "ExpectationRuleFallback: the free-energy term of each site form" tags = [:universal] begin

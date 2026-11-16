@@ -318,10 +318,10 @@ The first step starts from the flat site, `η = 0`, so that the marginal is the 
 be proper: a prior, or an initial message. A raw message with no cavity yet waits. The variable's
 family is the first one its sites take: the prior's, when its message arrives first.
 
-The target's expectations are by Gauss–Hermite points in a Gaussian family. In any other, they are
-by Gauss–Legendre points in the unconstrained coordinate of the domain, `log x` for a Gamma: its
-statistics hold `log x`, whose expectation Gauss–Laguerre points, exact for polynomials, reach only
-slowly at a small shape. `NaturalGradientForm(backend = …)` takes another backend. Packages add a
+The target's expectations are by Gauss–Hermite points in a Gaussian family, 16 per dimension. In
+any other, they are by 128 Gauss–Legendre points in the unconstrained coordinate of the domain,
+`log x` for a Gamma: its statistics hold `log x`, whose expectation Gauss–Laguerre points, exact
+for polynomials, reach only slowly at a small shape. `NaturalGradientForm(backend = …)` takes another backend. Packages add a
 closed form of the target with a method of [`natural_gradient_target`](@ref) for their message
 type and the family of `q`.
 
