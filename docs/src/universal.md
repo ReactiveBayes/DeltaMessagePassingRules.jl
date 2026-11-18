@@ -4,15 +4,16 @@ CurrentModule = DeltaMessagePassingRules
 
 # [Universal inference](@id delta-universal)
 
-Message passing needs two things a model may not have: a rule for every message a node sends,
-and a closed form for every belief, the product of the messages a variable receives. Where a node
-has no rule, a *rule fallback* gives its messages; where a belief has no closed form, a *form
-constraint* projects it onto one. This package gives a fallback and three projections that need
-nothing written per node or per variable. They compute everything from the nodes' log-densities
-and the variables' domains, with the quadrature and the Gaussian approximations of
+Message passing needs a rule for each message a node sends, and a closed form for each belief,
+the product of the messages a variable receives. When a node has no rule, a *rule fallback*
+computes its messages. When a belief has no closed form, a *form constraint* projects it onto
+one. This package has a rule fallback and several projections that need no code per node or per
+variable. They work from the log-densities of the nodes and the domains of the variables, and use
+the quadrature rules and Gaussian approximations of
 [ExpectationApproximations](https://github.com/ReactiveBayes/ExpectationApproximations.jl).
 
-In RxInfer, one keyword chooses how they are combined, a *fallback scheme*:
+In RxInfer, a *fallback scheme* combines them. It is selected with the `fallback` keyword of
+`infer`:
 
 ```julia
 using RxInfer
@@ -20,23 +21,23 @@ using RxInfer
 infer(model = model(), data = data, fallback = LocalLaplace())
 ```
 
-| RxInfer's scheme | The rule fallback | The projection | What it is |
+| Scheme in RxInfer | Rule fallback | Projection | Method |
 |---|---|---|---|
-| `LocalLaplace()` | [`ExpectationRuleFallback`](@ref)`()` | [`LaplaceForm`](@ref), on every belief | Laplace's approximation of each belief on its own, at its mode |
-| `LaplacePropagation()` | [`ExpectationRuleFallback`](@ref)`(LaplaceForm())` | [`LaplaceForm`](@ref), on each edge's site | Laplace propagation, see [Cavity propagation](@ref delta-universal-cavity) |
-| `ExpectationPropagation()` | [`ExpectationRuleFallback`](@ref)`(MomentForm())` | [`MomentForm`](@ref), on each edge's site | expectation propagation, see [Cavity propagation](@ref delta-universal-cavity) |
-| `NaturalGradientPropagation()` | [`ExpectationRuleFallback`](@ref)`(NaturalGradientForm())` | [`NaturalGradientForm`](@ref), on each edge's site in any exponential family; [`VariationalForm`](@ref) on the beliefs without sites | natural-gradient propagation, see [Natural-gradient propagation](@ref delta-universal-ngmp) |
+| `LocalLaplace()` | [`ExpectationRuleFallback`](@ref)`()` | [`LaplaceForm`](@ref) on all beliefs | Laplace approximation of each belief separately, at its mode |
+| `LaplacePropagation()` | [`ExpectationRuleFallback`](@ref)`(LaplaceForm())` | [`LaplaceForm`](@ref) on the site of each edge | Laplace propagation, see [Cavity propagation](@ref delta-universal-cavity) |
+| `ExpectationPropagation()` | [`ExpectationRuleFallback`](@ref)`(MomentForm())` | [`MomentForm`](@ref) on the site of each edge | Expectation propagation, see [Cavity propagation](@ref delta-universal-cavity) |
+| `NaturalGradientPropagation()` | [`ExpectationRuleFallback`](@ref)`(NaturalGradientForm())` | [`NaturalGradientForm`](@ref) on the site of each edge, in any exponential family; [`VariationalForm`](@ref) on beliefs without sites | Natural-gradient propagation, see [Natural-gradient propagation](@ref delta-universal-ngmp) |
 
-The scheme also sets the expectation backend the fallback computes with, by default the
-backends loaded in the session, such as ExpectationApproximations' `EADefault()`. A node with a
-rule, and a belief with a closed form, are never touched: a conjugate model runs as without a
-scheme.
+The scheme also sets the expectation backend that the fallback uses. By default these are the
+backends loaded in the session, such as `EADefault()` from ExpectationApproximations. Nodes that
+have rules and beliefs that have a closed form are not affected, so a conjugate model runs the
+same with or without a scheme.
 
 ## A message of a stochastic node
 
-The node below has a log-density and no rules. Its message towards `a`, with `out` observed and
-`b` a point mass, is the node's log-density itself, and its log scale is known up to its
-normaliser:
+The node below has a log-density but no rules. With `out` observed and `b` a point mass, its
+message towards `a` is the log-density of the node as a function of `a`. The log scale of the
+message is known up to the normaliser of that density:
 
 ```@example universal
 using DeltaMessagePassingRules, MessagePassingRulesBase, BayesBase, ExponentialFamily
@@ -57,8 +58,9 @@ message, logscale = unwrap_fallback(call_fallback(fallback, Toy, Target(:a), not
 logpdf(message, 1.0), logscale
 ```
 
-With a Gaussian on `out` instead, the message is the expectation over it, and keeps its
-variance, which a plug-in of its mean loses:
+When the message on `out` is a Gaussian instead, the message towards `a` is the expected
+log-density over `out`. It depends on the variance of `out`, which would be lost if the mean of
+`out` were plugged in:
 
 ```@example universal
 args = RuleArgs(m = (out = NormalMeanVariance(2.0, 3.0),), q = (b = PointMass(0.5),))
@@ -68,9 +70,10 @@ logpdf(message, 1.0), -((2.0 - 1.0)^2 + 3.0) / (2 * 0.5)
 
 ## The projections
 
-A Gamma prior times a likelihood has no closed form here. Each projection works in the
-unconstrained coordinates of the belief's domain, read from the prior's support: here `log x`,
-so each result is a log-normal distribution, with the log of the product's normaliser. Laplace's
+The product of a Gamma prior and a likelihood given as a log-density has no closed form. Each
+projection works in the unconstrained coordinates of the belief's domain, which it reads from the
+support of the prior. Here the coordinate is `log x`, so each result is a log-normal
+distribution. Each projection also returns the log of the product's normaliser. Laplace's
 approximation is the Gaussian at the mode:
 
 ```@example universal
@@ -82,16 +85,18 @@ result.distribution.domain, mean(result.distribution.gaussian), result.logZ
 ```
 
 The variational Gaussian minimises `KL(q ‖ p)` instead. Its log normaliser is the evidence lower
-bound, below the exact `log Γ(5) - 5 log 3 ≈ -2.315` of this product; for this density, a gamma
-in `log x`, it happens to equal Laplace's estimate, while its location sits below the mode:
+bound, which is below the exact value for this product, `log Γ(5) - 5 log 3 ≈ -2.315`. For this
+density, a Gamma seen in the coordinate `log x`, the bound happens to equal Laplace's estimate,
+but the mean of the variational Gaussian is below the mode:
 
 ```@example universal
 variational = DeltaMessagePassingRules.variational_form(DeltaMessagePassingRules.VariationalForm(), product)
 variational.method, mean(variational.distribution.gaussian), variational.logZ
 ```
 
-Moment matching gives the Gaussian with the product's own mean and variance in those
-coordinates, and the product's integral, both by quadrature; here the integral is the exact one:
+Moment matching gives the Gaussian with the same mean and variance as the product in those
+coordinates. The moments and the integral of the product are computed by quadrature. Here the
+integral equals the exact value:
 
 ```@example universal
 moments = DeltaMessagePassingRules.moment_form(DeltaMessagePassingRules.MomentForm(), product)
@@ -111,49 +116,50 @@ DeltaMessagePassingRules.ExpectedLogDensity
 
 ## [Cavity propagation](@id delta-universal-cavity)
 
-### Why projecting each belief is not enough
+### Projecting each belief separately
 
-Under `LocalLaplace()`, every product with no closed form is projected on its own. A
-variable with `K` connections has `K + 1` such products, its marginal and its `K` outbound
-messages, and each holds the same raw message from a likelihood. That message is approximated
-`K + 1` times, separately, and the approximations need not agree: the marginal and the messages
-next to it describe slightly different beliefs, and the Bethe free energy computed from them is
-not a bound. Worse, a message pulled back through a nonlinear function, such as an observation of
-`sin(θ)` sent towards `θ`, may have no Gaussian of its own to be projected onto: on its own it
-says nothing about some directions.
+Under `LocalLaplace()`, each product with no closed form is projected separately. A variable
+with `K` connections has `K + 1` such products: its marginal and its `K` outbound messages. The
+same raw message from a likelihood is part of these products, and each projection approximates
+it again. The approximations need not agree, so the marginal and the neighbouring messages
+describe slightly different beliefs, and the Bethe free energy computed from them is not a bound.
+There is a second problem. A message pulled back through a nonlinear function, such as an
+observation of `sin(θ)` sent towards `θ`, may carry no information about some directions. Such
+a message has no Gaussian that it can be projected onto.
 
 ### Sites and cavities
 
-Cavity propagation approximates each raw message once, where it matters. Every random variable
-keeps one *site* `s_k` per edge, a Gaussian. On an edge whose message `m_k` is already a Gaussian,
-the site is the message. On an edge with a raw message, the site is
+Cavity propagation approximates each raw message once. Each random variable keeps one Gaussian
+*site* `s_k` per edge. If the message `m_k` on an edge is already a Gaussian, the site is that
+message. On an edge with a raw message, the site is
 
 ```math
 c_k = \prod_{j \neq k} s_j, \qquad s_k = \frac{\operatorname{proj}(m_k \, c_k)}{c_k},
 ```
 
-where the *cavity* `c_k`, the product of the other edges' sites, is exactly the message the
-variable sends out on edge `k`. The variable then multiplies sites, never raw messages: its
-marginal and its outbound messages are products of the same Gaussians, one belief seen from each
-edge. Four properties follow.
+The *cavity* `c_k` is the product of the sites on the other edges, and it is the message that
+the variable sends out on edge `k`. The variable multiplies sites and not raw messages, so its
+marginal and its outbound messages are all products of the same Gaussians. They describe one
+belief, seen from different edges.
 
-1. **Exact where belief propagation is exact.** A closed message times a Gaussian cavity is its
-   own projection, so its site is the message, and conjugate parts of a model do not change.
-2. **The beliefs agree.** At a fixed point, the marginal equals `proj(m_k c_k)` for every raw
-   edge `k`.
-3. **Each projection holds one raw factor** times a Gaussian, the cavity, which gives it the
-   dimension and the scale a pulled-back message lacks on its own.
-4. **It is expectation propagation with fully factorised sites** (Minka, 2001). For a factor
-   `f(x, y)`, belief propagation's message to `x` is `∫ f(x, y) c_y(y) dy`, and its product with
-   `c_x` is the `x`-marginal of the tilted density `c_x(x) c_y(y) f(x, y)`; projecting it is EP's
-   update for `f ≈ s_x(x) s_y(y)`. With moment matching ([`MomentForm`](@ref)) this is
-   expectation propagation; with Laplace's method ([`LaplaceForm`](@ref)) it is Laplace
-   propagation (Smola, Vishwanathan and Eskin), whose fixed point on a chain is the global
-   Laplace approximation.
+Cavity propagation is exact where belief propagation is exact. A closed message times a Gaussian
+cavity is its own projection, so its site is the message, and the conjugate parts of a model do
+not change. At a fixed point the beliefs agree: the marginal equals `proj(m_k c_k)` for each
+edge `k` with a raw message. Each projection involves one raw factor times a Gaussian, the
+cavity, and the cavity gives it the dimension and the scale that a pulled-back message lacks on
+its own.
 
-[`site`](@ref) computes one site. Here a Poisson observation of a log-rate, a raw message, meets a
-Gaussian cavity. Laplace propagation's site and expectation propagation's differ, since the
-tilted density is skewed:
+The method is expectation propagation with fully factorised sites (Minka, 2001). For a factor
+`f(x, y)`, the belief-propagation message to `x` is `∫ f(x, y) c_y(y) dy`. Its product with `c_x`
+is the `x`-marginal of the tilted density `c_x(x) c_y(y) f(x, y)`, and projecting that marginal
+is the EP update for `f ≈ s_x(x) s_y(y)`. With moment matching ([`MomentForm`](@ref)) the
+method is expectation propagation. With Laplace's method ([`LaplaceForm`](@ref)) it is Laplace
+propagation (Smola, Vishwanathan and Eskin), whose fixed point on a chain is the global Laplace
+approximation.
+
+[`site`](@ref) computes a single site. In the example below, the raw message is a Poisson
+observation of a log-rate, and the cavity is a Gaussian. The tilted density is skewed, so the
+sites of Laplace propagation and expectation propagation differ:
 
 ```@example universal
 raw = NodeFunctionLogPdf(x -> 3x - exp(x))          # y = 3 counts, log-rate x
@@ -165,30 +171,34 @@ laplace.site, ep.site
 
 ### Where the sites live
 
-The engine keeps the sites at the variables (ReactiveMP's site policy), not in the nodes. Rules
-and rule matching do not change, and a node with a hand-written rule that already returns a
-Gaussian, such as Probit's own expectation-propagation rule, passes as its own site. The price is
-that a site is one Gaussian per variable: a node with several random inputs gets a site at each
-input, not one joint site over them, which would need a rule in the node itself.
+The engine stores the sites at the variables, through ReactiveMP's site policy, and the nodes do
+not store them. Rules and rule matching are therefore unchanged. A node with a hand-written rule
+that already returns a Gaussian, such as the expectation-propagation rule of the Probit node,
+sends a message that is its own site. The drawback is that each site is a Gaussian over a single
+variable. A node with several random inputs gets a separate site at each input and no joint site
+over them; a joint site would need a rule in the node itself.
 
 ### The messages the fallback sends
 
-Under a propagation scheme, [`ExpectationRuleFallback`](@ref)`(propagation)` sends messages for the
-sites to project, unprojected:
+Under a propagation scheme, [`ExpectationRuleFallback`](@ref)`(propagation)` sends unprojected
+messages, and the sites project them:
 
-- towards `out` of a deterministic node, the pushforward of its inputs' messages,
-  [`PushforwardMessage`](@ref). Its site at the output is the projection of the inputs' tilted
-  density against the output's cavity, which needs no input's message to be proper.
-- towards one input of a node with several random inputs, belief propagation's message, the
-  factor integrated against the other edges' messages, [`TiltedJointMessage`](@ref). Its site is
-  the target's block of the joint projection of the tilted density over all the free inputs.
+- Towards `out` of a deterministic node, it sends the pushforward of the input messages, a
+  [`PushforwardMessage`](@ref). The site at the output is the projection of the inputs' tilted
+  density against the cavity of the output. The input messages do not need to be proper for
+  this.
+- Towards one input of a node with several random inputs, it sends the belief-propagation
+  message, the factor integrated against the messages on the other edges, a
+  [`TiltedJointMessage`](@ref). Its site is the block of the target in the joint projection of
+  the tilted density over all free inputs.
 
-One limit: the integral needs the other inputs' messages to be Gaussians or point masses. An input
-whose message is of another family, such as a Gamma precision, or that comes as a mean-field
-marginal, keeps the expected log-density `E[log f]`, as without propagation.
+The integral requires the messages of the other inputs to be Gaussians or point masses. If one of
+them is of another family, such as a Gamma message on a precision, or comes as a mean-field
+marginal, the message towards the target is the expected log-density `E[log f]`, as without
+propagation.
 
-A raw message that arrives again unchanged takes its last site without a projection, which
-[`same_message`](@ref) and [`same_density`](@ref) decide.
+When a raw message arrives again unchanged, its last site is reused without a new projection.
+[`same_message`](@ref) and [`same_density`](@ref) decide whether a message is unchanged.
 
 ```@docs
 DeltaMessagePassingRules.site
@@ -200,37 +210,40 @@ DeltaMessagePassingRules.same_density
 
 ### Improper sites
 
-A site, and so a cavity or an outbound message, may be improper: a Gaussian whose precision is
-singular or even indefinite. A pulled-back `sin(θ)` observation has a precision near zero along
-directions it does not see, and a negative one where `sin` is concave against the cavity. This is
-normal for expectation propagation: only the tilted densities need to be proper. Nothing checks,
-and nothing is clipped. Every function here uses a site only through its natural parameters, in
-weighted-mean form (`NormalWeightedMeanPrecision`, `MvNormalWeightedMeanPrecision`), never through
-its moments: through its moments an indefinite precision would be replaced by a positive definite
-one, which describes another Gaussian without saying so.
+A site may be improper, and so may a cavity or an outbound message: it can be a Gaussian whose
+precision is singular or indefinite. For example, the site of a pulled-back `sin(θ)` observation
+has a precision near zero in the directions the observation does not inform, and a negative
+precision where `sin` is concave against the cavity. This is normal in expectation propagation,
+where only the tilted densities need to be proper. The package does not check sites for
+properness and does not clip them. The functions here use a site only through its natural
+parameters, in weighted-mean form (`NormalWeightedMeanPrecision`,
+`MvNormalWeightedMeanPrecision`), and not through its moments. Computing the moments would
+replace an indefinite precision with a positive definite one, which silently describes a
+different Gaussian.
 
 ### The free energy
 
-Expectation propagation's free energy splits into terms each node and variable computes from what
-it sees. The variables keep their Bethe term, `(d_i - 1) H[q_i]`, and every node with rules keeps
-its average energy less its entropy. A node that sends a raw message takes instead
-[`cavity_energy`](@ref),
+The free energy of expectation propagation splits into local terms, each computed by a node or a
+variable from its own inputs. Each variable contributes its Bethe term, `(d_i - 1) H[q_i]`, and
+each node with rules contributes its average energy minus its entropy. A node that sends a raw
+message contributes [`cavity_energy`](@ref) instead,
 
 ```math
 F_a = -\log \int f_a \prod_i c_{ia} + \sum_i \mathbb{E}_{q_i}[\log c_{ia}],
 ```
 
-from its inbound messages `c_ia`, the cavities, and the variables' marginals `q_i`. The terms add up
-to EP's free energy because the sites multiply to the marginals,
-`Σ_a η(c_ia) = (d_i - 1) η(q_i)` in natural parameters: moving each `E_{q_i}[log c_ia]` from the
-variable's term to the node's leaves every other term as it is. Rescaling a cavity changes neither
-part's sum, so an improper cavity enters through its kernel. The integral must be the scheme's own
-estimate, Laplace's or the moments' quadrature: with an exact integral under Laplace propagation
-the local terms no longer add up to the global free energy (they differed by 0.34 on a Poisson
-count series).
+computed from the inbound messages of the node, `c_ia`, which are the cavities, and from the
+marginals `q_i` of its variables. The terms add up to the free energy of EP because the sites
+multiply to the marginals: in natural parameters, `Σ_a η(c_ia) = (d_i - 1) η(q_i)`. Each
+`E_{q_i}[log c_ia]` can therefore be moved from the variable's term to the node's term, and the
+other terms stay the same. Rescaling a cavity does not change the sum of the two parts, so an
+improper cavity enters through its kernel. The integral must be the scheme's own estimate:
+Laplace's estimate, or the quadrature of the moments. If the integral is computed exactly under
+Laplace propagation, the local terms no longer add up to the global free energy; on a series of
+Poisson counts they differed by 0.34.
 
-At a fixed point the free energy approximates `-log p(y)`, but it is not a bound: a lower value is
-not a better approximation.
+At a fixed point the free energy approximates `-log p(y)`, but it is not a bound, and a lower
+value does not mean a better approximation.
 
 ```@docs
 DeltaMessagePassingRules.cavity_energy
@@ -246,40 +259,44 @@ DeltaMessagePassingRules.cavity_energy
 ## [Natural-gradient propagation](@id delta-universal-ngmp)
 
 Natural-gradient propagation (Lukashchuk, Yemets, Ledbetter and Şenöz, *Information Geometry of
-Message Passing*, 2026) keeps the sites of cavity propagation, one per edge of a random variable,
-and the messages the fallback sends, belief propagation's: a node's log-density, its pushforward
-towards a deterministic node's output, its factor integrated against the other edges' messages.
-It changes how a site follows its message, and in which family it lives.
+Message Passing*, 2026) uses the sites of cavity propagation, one per edge of a random variable.
+The fallback sends the same belief-propagation messages: a node's log-density, the pushforward
+towards the output of a deterministic node, or the factor integrated against the messages on the
+other edges. The difference is in how a site is updated from its message, and in the family of
+the site.
 
 ### The target and the step
 
-On an edge with a raw message, whose log-density is `ℓ`, and a marginal `q`, the cavity times the
-edge's site, in an exponential family with sufficient statistics `T` and Fisher information `G`,
-the site's target is
+Consider an edge with a raw message whose log-density is `ℓ`. Let `q` be the marginal, the cavity
+times the site of the edge, in an exponential family with sufficient statistics `T` and Fisher
+information `G`. The target of the site is
 
 ```math
 \eta^\star = G(q)^{-1} \operatorname{Cov}_q[T(x), \ell(x)] = \nabla_\mu \mathbb{E}_q[\ell],
 ```
 
-in natural parameters, the gradient of the expected log-message in the mean parameters `μ` of
-`q`, which [`natural_gradient_target`](@ref) computes. In a Gaussian family it is Stein's lemma,
-`Λ⋆ = -E_q[∇²ℓ]` and `ξ⋆ = E_q[∇ℓ] + Λ⋆ m`, taken from `ℓ`'s values only. The site moves from
-its last natural parameters `η` towards the target by a damped heavy-ball step,
+in natural parameters. It is the gradient of the expected log-message with respect to the mean
+parameters `μ` of `q`, and [`natural_gradient_target`](@ref) computes it. In a Gaussian family,
+Stein's lemma gives `Λ⋆ = -E_q[∇²ℓ]` and `ξ⋆ = E_q[∇ℓ] + Λ⋆ m`, computed from the values of `ℓ`
+only. The site moves from its last natural parameters `η` towards the target by a damped
+heavy-ball step,
 
 ```math
 v \leftarrow \beta v + \alpha (\eta^\star - \eta), \qquad \eta \leftarrow \eta + v,
 ```
 
-with the velocity `v` shortened to `max_step` and halved until the marginal is proper. Both, `η`
-and `v`, are the state of the edge, which the engine keeps in the site's outcome. At a fixed point
-each site is its target and each marginal satisfies `λ = λ_prior + Σ_k ∇_μ E_q[ℓ_k]`: the
-stationarity of the variational free energy over the family. Under Gaussian cavities this is
-the fixed point of conjugate-computation variational inference (Khan and Lin, 2017): for a model
-with one latent variable, the variational Gaussian of the joint.
+The velocity `v` is shortened to length `max_step` and then halved until the marginal is proper.
+`η` and `v` are the state of the edge, and the engine keeps them in the outcome of the site. At a
+fixed point each site equals its target, and each marginal satisfies
+`λ = λ_prior + Σ_k ∇_μ E_q[ℓ_k]`, the stationarity condition of the variational free energy over
+the family. With Gaussian cavities this is the fixed point of conjugate-computation variational
+inference (Khan and Lin, 2017). For a model with one latent variable, it is the variational
+Gaussian of the joint.
 
-[`site`](@ref) with a [`NaturalGradientForm`](@ref) takes one step. Here the log-normal of a
-normal pushed through `exp` meets a Gamma cavity, as a rate with a Poisson count and a log-normal
-prior does: its site is a Gamma. Repeated, the step settles where the site is its own target:
+[`site`](@ref) with a [`NaturalGradientForm`](@ref) takes one step. In the example below, the
+message is a log-normal, a normal pushed through `exp`, and the cavity is a Gamma. This is the
+situation of a rate with a log-normal prior and a Poisson count. The site is a Gamma. After
+repeated steps the site settles at its own target:
 
 ```@example universal
 import DeltaMessagePassingRules: NaturalGradientForm, PushforwardMessage, natural_gradient_target, site
@@ -301,59 +318,66 @@ natural_gradient_target(lognormal, marginal, nothing) ≈ step.outcome.η
 
 ### Sites in any exponential family
 
-A site is in the family of its cavity, the product of the variable's other sites, rather than
-always a Gaussian:
+In natural-gradient propagation, a site is in the family of its cavity, the product of the
+variable's other sites. This family need not be Gaussian.
 
-- a closed message of that family, a Gaussian towards a Gaussian or a Gamma towards a Gamma, is
-  its own site, so conjugate parts of a model do not change;
-- a Gaussian cavity gives a Gaussian site, in weighted-mean form, a Gamma cavity a Gamma site,
-  `GammaShapeRate`, and any other continuous family with one dimension, such as a Beta, an
-  `ExponentialFamilyDistribution` of it, so that the products of sites, proper or not, are closed;
-- a raw message, or a closed one of another family such as a log-normal towards a Gamma, steps;
-- a cavity in no such family, a discrete one or a multivariate one that is not a Gaussian, lets
-  the message pass, and the variable's belief is projected as a product, onto its
-  [`VariationalForm`](@ref) Gaussian, as is the belief of a variable with one connection.
+- A closed message of the cavity's family, such as a Gaussian towards a Gaussian or a Gamma
+  towards a Gamma, is its own site, so the conjugate parts of a model do not change.
+- A Gaussian cavity gives a Gaussian site in weighted-mean form, and a Gamma cavity gives a
+  `GammaShapeRate` site. Any other continuous univariate family, such as a Beta, gives an
+  `ExponentialFamilyDistribution` of that family. Products of sites in these types are closed,
+  whether the sites are proper or not.
+- A raw message, or a closed message of another family such as a log-normal towards a Gamma,
+  takes a natural-gradient step.
+- If the cavity is in none of these families, for example a discrete distribution or a
+  multivariate one that is not a Gaussian, the message passes as it is. The variable's belief is
+  then projected as a product onto its [`VariationalForm`](@ref) Gaussian, like the belief of a
+  variable with one connection.
 
-The first step starts from the flat site, `η = 0`, so that the marginal is the cavity, which must
-be proper: a prior, or an initial message. A raw message with no cavity yet waits. The variable's
-family is the first one its sites take: the prior's, when its message arrives first.
+The first step starts from the flat site, `η = 0`, so the marginal equals the cavity, which must
+be proper: a prior or an initial message, for example. A raw message that has no cavity yet
+waits. The family of a variable is the family that its first site takes, which is the prior's
+family when the prior's message arrives first.
 
-The target's expectations are by Gauss–Hermite points in a Gaussian family, 16 per dimension. In
-any other, they are by 128 Gauss–Legendre points in the unconstrained coordinate of the domain,
-`log x` for a Gamma: its statistics hold `log x`, whose expectation Gauss–Laguerre points, exact
-for polynomials, reach only slowly at a small shape. `NaturalGradientForm(backend = …)` takes another backend. Packages add a
-closed form of the target with a method of [`natural_gradient_target`](@ref) for their message
-type and the family of `q`.
+In a Gaussian family, the expectations of the target are computed with 16 Gauss–Hermite points
+per dimension. In other families they use 128 Gauss–Legendre points in the unconstrained
+coordinate of the domain, `log x` for a Gamma. The sufficient statistics of a Gamma include
+`log x`, and Gauss–Laguerre points, which are exact for polynomials, converge slowly on its
+expectation when the shape is small. `NaturalGradientForm(backend = …)` selects another backend.
+A package can add a closed form of the target with a method of
+[`natural_gradient_target`](@ref) for its message type and the family of `q`.
 
-With [ClosedFormExpectations](https://github.com/biaslab/ClosedFormExpectations.jl) loaded, the
-target is in closed form wherever its Williams product `E_q[log p(x) ∇ log q(x)] = ∇ E_q[log p]`
-is, at a univariate Gaussian or a Gamma belief, for a message whose log-density is a distribution
-`p`'s, up to a constant: a log-normal or a Laplace message, or a Gamma message pulled back through
-`exp`, the message of a Poisson count towards its log rate. A package gives its own message type
-such a distribution with a method of [`closed_form_integrand`](@ref).
+When [ClosedFormExpectations](https://github.com/biaslab/ClosedFormExpectations.jl) is loaded,
+the target has a closed form wherever ClosedFormExpectations has one for the Williams product
+`E_q[log p(x) ∇ log q(x)] = ∇ E_q[log p]`. This covers univariate Gaussian and Gamma beliefs, for
+a message whose log-density is that of a distribution `p` up to a constant. Examples are a
+log-normal or a Laplace message, and a Gamma message pulled back through `exp`, which is the
+message of a Poisson count towards its log rate. A package can map its own message type to such
+a distribution with a method of [`closed_form_integrand`](@ref).
 
 ### The free energy
 
-The fixed point is a stationary point of the Bethe free energy with each node's average energy
-under the marginals, `-E_q[log f]`, rather than of expectation propagation's: the rule fallback
-takes the average energy, `ExpectationRuleFallback(NaturalGradientForm()).energy === :average`.
-On a Gaussian tree whose only non-conjugate factors are leaves it is the negative evidence lower
-bound; elsewhere it is a diagnostic, which need not decrease from one iteration to the next.
+The fixed point is a stationary point of the Bethe free energy in which each node contributes its
+average energy under the marginals, `-E_q[log f]`, and not of the free energy of expectation
+propagation. The rule fallback therefore uses the average energy:
+`ExpectationRuleFallback(NaturalGradientForm()).energy === :average`. On a Gaussian tree whose
+only non-conjugate factors are leaves, this free energy is the negative evidence lower bound. On
+other models it is a diagnostic, and it need not decrease from one iteration to the next.
 
 ### Limits
 
-- **Momentum without transport.** The velocity of the heavy ball is carried from one marginal to
-  the next in natural parameters as they are, without the vector transport of the information
-  geometry; the defaults damp enough for long chains, with the step halving that keeps every
-  marginal proper.
-- **No convergence guarantee.** The iteration is a fixed-point scheme of natural gradients, one
-  site at a time; it converges on the models above, but nothing proves it does on all.
-- **Non-Gaussian other inputs.** The message towards one input of a node whose other inputs are
-  not all Gaussians or point masses, such as a Gamma precision, is the expected log-density
-  `E[log f]` rather than belief propagation's: one natural-gradient step on it is non-conjugate
-  variational message passing.
-- **Pushforwards.** A deterministic node's pushforward has its own density for one input through a
-  monotone function; otherwise its log-density is its moment-matched Gaussian's.
+- The velocity of the heavy-ball step is carried from one marginal to the next in natural
+  parameters directly, without the vector transport of information geometry. The default
+  damping, together with the step halving that keeps each marginal proper, is enough for long
+  chains.
+- The iteration is a fixed-point scheme that updates one site at a time with natural gradients.
+  It converges on the models above, but there is no proof that it converges in general.
+- If the other inputs of a node are not all Gaussians or point masses, for example when one of
+  them is a Gamma precision, the message towards an input is the expected log-density `E[log f]`
+  and not the belief-propagation message. One natural-gradient step on that message is
+  non-conjugate variational message passing.
+- The pushforward of a deterministic node has its exact density only for a single input through
+  a monotone function. Otherwise its log-density is that of its moment-matched Gaussian.
 
 ```@docs
 NaturalGradientForm

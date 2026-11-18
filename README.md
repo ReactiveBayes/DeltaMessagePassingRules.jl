@@ -13,18 +13,19 @@ method the model names in `DeltaApproximation`:
 - `Unscented()` and `Linearization()`, from MessagePassingRulesApproximations, for normal
   messages;
 - `CVIProjection()`, deprecated: sampling and projection onto an exponential family, for other
-  families, in a package extension loaded with `using ExponentialFamilyProjection`. RxInfer's
-  `fallback = NaturalGradientPropagation()` replaces it, with no method on the node.
+  families, in a package extension loaded with `using ExponentialFamilyProjection`. Use RxInfer's
+  `fallback = NaturalGradientPropagation()` instead, which needs no method on the node.
 
 A known inverse of `f`, when given, sends the messages towards the inputs through it.
 
-The package also gives the pieces of *universal inference*, for nodes with no rules at all and
-beliefs with no closed form: `ExpectationRuleFallback`, which computes a node's messages from its
-log-density, and the projections `LaplaceForm`, `VariationalForm`, `MomentForm` and
-`NaturalGradientForm`, with the sites of Laplace propagation, expectation propagation and
-natural-gradient propagation, the last in any exponential family. RxInfer combines them in its fallback
-schemes, `infer(...; fallback = LocalLaplace())` and its siblings; the documentation's "Universal
-inference" page explains each.
+The package also has the parts of *universal inference*, for nodes with no rules and beliefs with
+no closed form. `ExpectationRuleFallback` computes the messages of a node from its log-density.
+The projections `LaplaceForm`, `VariationalForm`, `MomentForm` and `NaturalGradientForm` project
+beliefs and compute the sites of Laplace propagation, expectation propagation and
+natural-gradient propagation; the sites of natural-gradient propagation can be in any
+exponential family. RxInfer combines these parts in its fallback schemes, such as
+`infer(...; fallback = LocalLaplace())`. The "Universal inference" page of the documentation
+describes each of them.
 
 ```julia
 using DeltaMessagePassingRules, MessagePassingRulesBase, MessagePassingRulesApproximations, ExponentialFamily

@@ -12,22 +12,25 @@ const GaussianMessage = Union{UnivariateNormalDistributionsFamily, MultivariateN
 """
     site(form, message, cavity, previous = nothing) -> (; site, outcome)
 
-The site of `message` on an edge whose cavity, the variable's outbound message on it, is `cavity`:
-`proj(message · cavity) / cavity`, by the projection of `form`, a [`LaplaceForm`](@ref) (Laplace
-propagation) or a [`MomentForm`](@ref) (expectation propagation).
+Return the site of `message` on an edge whose cavity is `cavity`. The cavity is the variable's
+outbound message on that edge. The site is `proj(message · cavity) / cavity`, where the
+projection is that of `form`: a [`LaplaceForm`](@ref) (Laplace propagation) or a
+[`MomentForm`](@ref) (expectation propagation).
 
 - A closed message, a distribution or a point mass, is its own site.
-- Against a cavity that is not a Gaussian, the message passes as it is: the variable's beliefs are
-  then projected as products, as without sites.
-- Otherwise the projection of `x ↦ log message(x) + ξᵀx - xᵀWx/2`, with the cavity's natural
-  parameters `(ξ, W)`, so that an improper cavity takes part as well, started at `previous`, the
-  last site's mode, or the cavity's mean where it has one. The site is the projection less the
-  cavity in natural parameters, an `(Mv)NormalWeightedMeanPrecision`, proper or not.
+- If the cavity is not a Gaussian, the message passes as it is, and the variable's beliefs are
+  projected as products, as without sites.
+- Otherwise `form` projects `x ↦ log message(x) + ξᵀx - xᵀWx/2`, where `(ξ, W)` are the natural
+  parameters of the cavity, so an improper cavity is handled too. The projection starts at
+  `previous`, the mode of the last site, or else at the mean of the cavity if it has one. The
+  site is the projection minus the cavity in natural parameters, an
+  `(Mv)NormalWeightedMeanPrecision` that may be improper.
 
-`outcome` is `(; method, converged, iterations, logZ, mode)`, `method` being `:closed_form`,
-`:passed`, `:laplace` or `:moment_matching`, and `logZ` the log of the tilted density's integral
-with the cavity as a kernel. A raw message against a `missing` cavity, while no other edge has a
-site, has a site `missing`, none yet, and the outcome `(; method = :waiting)`.
+`outcome` is `(; method, converged, iterations, logZ, mode)`. `method` is `:closed_form`,
+`:passed`, `:laplace` or `:moment_matching`, and `logZ` is the log of the integral of the tilted
+density, with the cavity entering as a kernel. While no other edge has a site, the cavity is
+`missing`; a raw message then has no site yet, so `site` is `missing` and the outcome is
+`(; method = :waiting)`.
 """
 function site(form, message, cavity, previous = nothing)
     is_closed_form(message) && return (; site = message, outcome = (; method = :closed_form))
@@ -45,24 +48,28 @@ end
 """
     PushforwardMessage(f, inputs, backend = nothing)
 
-The message of a deterministic node `out = f(in...)` towards `out` under cavity propagation: the
-pushforward of its inputs' messages, `inputs`, the cavities of its inputs, through `f`,
-unprojected. Its site, at the output's variable, is the projection of the pushforward against
-the output's cavity `c_out` ([`site`](@ref)): of the tilted density of the inputs,
-`x ↦ ∏ cᵢ(xᵢ) · c_out(f(x))`, the moments of `f(x)` by quadrature for a [`MomentForm`](@ref), or
-`f` linearised at its mode for a [`LaplaceForm`](@ref), less `c_out`. Expectation propagation's
-site of the node in the output's direction; it needs no input's message to be proper, only the
-tilted density to be.
+The message of a deterministic node `out = f(in...)` towards `out` under cavity propagation. It is
+the pushforward through `f` of the input messages `inputs`, which are the cavities of the inputs,
+and it is not projected.
 
-Under a [`NaturalGradientForm`](@ref) its site is a step towards the natural-gradient target of
-its log-density, `logpdf(message, z)`:
+Its site at the output variable ([`site`](@ref)) is the projection of the pushforward against the
+cavity of the output, `c_out`, minus `c_out`. The projection uses the tilted density of the
+inputs, `x ↦ ∏ cᵢ(xᵢ) · c_out(f(x))`. A [`MomentForm`](@ref) computes the moments of `f(x)`
+under it by quadrature, and a [`LaplaceForm`](@ref) linearises `f` at its mode. This is the site
+of expectation propagation for the node in the direction of the output. Only the tilted density
+needs to be proper; the input messages do not.
 
-- with one random input, a proper distribution of numbers, and `f` strictly monotone over it, the
-  pushforward's own density, `log c(x) - log |f'(x)|` at `x = f⁻¹(z)`, `f` inverted by bisection:
-  a log-normal through `exp`. Monotone means a derivative of one sign over the input's median ± 8
-  of its standard deviations, both in the unconstrained coordinate of its domain;
-- otherwise the density of the pushforward's moment-matched Gaussian, by `backend` over the
-  inputs (`nothing` for `ExpectationApproximations.EADefault()`), exact where `f` is linear.
+Under a [`NaturalGradientForm`](@ref), the site takes a step towards the natural-gradient target
+of the log-density `logpdf(message, z)`, which is:
+
+- with one random input that is a proper distribution over numbers, and `f` strictly monotone over
+  it, the exact density of the pushforward, `log c(x) - log |f'(x)|` at `x = f⁻¹(z)`, with `f`
+  inverted by bisection. A log-normal through `exp` is an example. Here `f` counts as monotone if
+  its derivative has one sign over the median of the input ± 8 standard deviations, both measured
+  in the unconstrained coordinate of the input's domain;
+- otherwise the density of the moment-matched Gaussian of the pushforward, computed by `backend`
+  over the inputs (`nothing` means `ExpectationApproximations.EADefault()`). This is exact when
+  `f` is linear.
 """
 struct PushforwardMessage{F, I, B}
     f::F
@@ -177,23 +184,25 @@ end
 """
     TiltedJointMessage(f, outbound, inputs, names, index, backend)
 
-The message of a node with several random inputs towards one of them, the `index`-th, under
-cavity propagation: `x ↦ log ∫ f(…, x, …) ∏ cⱼ(yⱼ) dy`, the node's factor integrated against the
-other edges' messages `inputs`, their cavities, as belief propagation defines it, unprojected.
-`inputs` holds every edge's message in the factor's order, `nothing` at the target's place. The
-factor is a stochastic node's keyword log-density `f` with its interface `names` (`outbound` is
-`nothing`), or a deterministic node's message on out at its function, `log outbound(f(…))`
-(`names` is `nothing`).
+The message of a node with several random inputs towards its `index`-th input under cavity
+propagation. It is the belief-propagation message, `x ↦ log ∫ f(…, x, …) ∏ cⱼ(yⱼ) dy`: the
+node's factor integrated against the messages `inputs` on the other edges, which are their
+cavities. It is not projected. `inputs` holds the message of each edge in the factor's order,
+with `nothing` in the place of the target. The factor is either the keyword log-density `f` of a
+stochastic node with interface names `names` (and `outbound` is `nothing`), or, for a
+deterministic node, its message on `out` evaluated at its function, `log outbound(f(…))` (and
+`names` is `nothing`).
 
-Its site, at the target's variable ([`site`](@ref)), is the target's block of the projection of
-the joint tilted density `f · c_x · ∏ cⱼ` over the target and the other free inputs, less the
-target's cavity `c_x`: expectation propagation's update for a factor with several inputs, which
-needs no single cavity to be proper, only the tilted density to be. Its log-density, where a
-variable projects it as a product, is the integral by the expectation `backend` over the other
-inputs' messages, or by Laplace's method where one of them is improper.
+Its site at the target variable ([`site`](@ref)) is the target's block of the projection of the
+joint tilted density `f · c_x · ∏ cⱼ` over the target and the other free inputs, minus the
+cavity `c_x` of the target. This is the expectation-propagation update for a factor with several
+inputs. Only the tilted density needs to be proper, not each cavity. Where a variable projects
+the message as part of a product, its log-density is the integral computed by the expectation
+`backend` over the messages of the other inputs, or by Laplace's method if one of them is
+improper.
 
-The other inputs' messages must be Gaussians or point masses: a node with an input whose message
-is of another family, or that comes as a mean-field marginal, sends the expected log-density
+The messages of the other inputs must be Gaussians or point masses. If an input has a message of
+another family, or comes as a mean-field marginal, the node sends the expected log-density
 instead (see [`ExpectationRuleFallback`](@ref)).
 """
 struct TiltedJointMessage{F, O, I, N, B}
@@ -262,12 +271,12 @@ end
 """
     same_message(a, b, tol = 0) -> Bool
 
-Whether two raw messages are the same density, to `tol` relative in natural parameters, so that a
-site computed against the same cavity need not be projected again: a message pulled back through a
-deterministic node, by its function and its message on `out`, a pushforward, by its function
-and its inputs, and a [`TiltedJointMessage`](@ref), by its factor and the other edges' messages.
-Any other message is compared by identity, as a log-density that is a closure cannot be
-compared.
+Return whether two raw messages are the same density, up to a relative tolerance `tol` in natural
+parameters. If they are, a site computed against the same cavity does not need to be projected
+again. A message pulled back through a deterministic node is compared by its function and its
+message on `out`, a pushforward by its function and its inputs, and a
+[`TiltedJointMessage`](@ref) by its factor and the messages on the other edges. Any other message
+is compared by identity, because a log-density that is a closure cannot be compared.
 """
 same_message(a, b, tol = 0) = a === b
 same_message(a::NodeFunctionLogPdf{<:PulledBack}, b::NodeFunctionLogPdf{<:PulledBack}, tol = 0) =
@@ -281,8 +290,9 @@ same_message(a::TiltedJointMessage, b::TiltedJointMessage, tol = 0) =
 """
     same_density(a, b, tol = 0) -> Bool
 
-Whether two densities agree to `tol` relative: two Gaussians in natural parameters, two point
-masses at the same point; anything else by identity.
+Return whether two densities agree up to a relative tolerance `tol`. Two Gaussians are compared in
+natural parameters, and two point masses agree if they are at the same point. Anything else is
+compared by identity.
 """
 same_density(a, b, tol = 0) = a === b
 same_density(a::PointMass, b::PointMass, tol = 0) = mean(a) == mean(b)
@@ -399,18 +409,21 @@ kernel_correction(outbound) = 0.0
 """
     cavity_energy(form, node, ctx, args)
 
-The free-energy term of a node that sends a raw message, under cavity propagation:
+The free-energy term, under cavity propagation, of a node that sends a raw message:
 
     F = -log ∫ f ∏ᵢ cᵢ + Σᵢ E_{qᵢ}[log cᵢ]
 
-from its inbound messages `cᵢ` in `args.m`, the cavities, and its variables' marginals `qᵢ` in
-`args.q`, by interface. The integral is the projection of `form`'s estimate: Laplace's or the
-moments' quadrature. Every other term of the Bethe free energy stays as it is: the variables'
-`(d - 1) H[q]` and the average energies less entropies of the nodes with rules. Rescaling a
-cavity changes neither part's sum, so each enters as the log of its kernel, an improper one too.
-A point mass, data or a constant, is plugged in. `nothing` for a node it cannot integrate: a
-stochastic node without a log-density or with a group of interfaces, or a deterministic one with
-no instance in `ctx` or an observed output.
+It is computed from the node's inbound messages `cᵢ` in `args.m`, which are the cavities, and the
+marginals `qᵢ` of its variables in `args.q`, by interface. The integral is the estimate of the
+projection of `form`: Laplace's estimate, or the quadrature of the moments. The other terms of
+the Bethe free energy do not change: the `(d - 1) H[q]` of the variables, and the average energy
+minus the entropy of each node with rules. Rescaling a cavity does not change the sum of the two
+parts, so each cavity enters as the log of its kernel, including an improper one. A point mass,
+such as data or a constant, is plugged in.
+
+Returns `nothing` for a node that it cannot integrate: a stochastic node without a log-density
+or with a group of interfaces, or a deterministic node with no instance in `ctx` or with an
+observed output.
 """
 function cavity_energy(form, node, ctx, args)
     sdtype(node) isa Deterministic && return deterministic_cavity_energy(form, node, ctx, args)

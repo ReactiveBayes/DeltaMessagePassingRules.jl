@@ -1,35 +1,38 @@
 """
     VariationalForm(; tol = 1e-10, maxiters = 100, nomode = :project, backend = nothing)
 
-A form constraint for universal inference, [`LaplaceForm`](@ref)'s variational sibling: the
-projection of a belief with no closed form onto the Gaussian that minimises `KL(q ‖ p)` in the
-unconstrained coordinates of its domain, by [`variational_form`](@ref), the fixed point of
-conjugate-computation variational inference. Under mean field, where a variable's belief is the
-product of its prior and the expected log-densities of [`ExpectationRuleFallback`](@ref), it is
-the optimal Gaussian; Laplace's method takes the mode and the curvature of the same product.
-Under natural-gradient propagation ([`NaturalGradientForm`](@ref)), whose fixed point in a
-Gaussian family is the same, it projects the beliefs that have no sites: those of a variable with
-one connection, or whose cavity is in no family with sites.
+A form constraint for universal inference, the variational counterpart of
+[`LaplaceForm`](@ref). It projects a belief that has no closed form onto the Gaussian that
+minimises `KL(q ‖ p)` in the unconstrained coordinates of its domain, with
+[`variational_form`](@ref). This Gaussian is the fixed point of conjugate-computation variational
+inference. Under mean field, where the belief of a variable is the product of its prior and the
+expected log-densities of [`ExpectationRuleFallback`](@ref), it is the optimal Gaussian, while
+Laplace's method uses the mode and the curvature of the same product. Natural-gradient
+propagation ([`NaturalGradientForm`](@ref)) has the same fixed point in a Gaussian family, and
+uses this form for the beliefs that have no sites: those of a variable with one connection, or
+whose cavity is in no family with sites.
 
-- a closed form, a distribution or a point mass, passes as it is, so a conjugate variable never
-  changes;
-- a product with a finite discrete factor, a categorical, is normalised exactly over its support;
-- any other product is `ExpectationApproximations.gaussian_variational` in the unconstrained
-  coordinates of its domain: on the real line ExponentialFamily's `NormalMeanVariance` or
-  `MvNormalMeanCovariance`, and an `ExpectationApproximations.TransformedGaussian` on any other
-  domain, the domain being that of the first factor that has one.
+- a closed form, a distribution or a point mass, is returned as it is, so a conjugate variable
+  does not change;
+- a product with a finite discrete factor, such as a categorical, is normalised exactly over its
+  support;
+- any other product is replaced by `ExpectationApproximations.gaussian_variational` in the
+  unconstrained coordinates of its domain. On the real line this is ExponentialFamily's
+  `NormalMeanVariance` or `MvNormalMeanCovariance`, and on any other domain an
+  `ExpectationApproximations.TransformedGaussian`. The domain is taken from the first factor that
+  has one.
 
-Each projection reports the evidence lower bound of the product as the log of its normaliser, a
-lower bound on it.
+Each projection returns the evidence lower bound of the product as the log of its normaliser, so
+the value is a lower bound on the log normaliser.
 
 # Keywords
-- `tol`, `maxiters`: of the Newton iterations on the bound;
-- `nomode`: what a product becomes when the iterations do not converge, as for a likelihood's
-  message alone that rises without bound: `:project` keeps the last Gaussian, `:leave` leaves
-  the product unprojected (see [`LaplaceForm`](@ref));
-- `backend`: the expectation backend of the bound's quadrature, a point set for a Gaussian;
-  `nothing`, the default, for `ExpectationApproximations.EADefault()`. RxInfer's
-  `NaturalGradientPropagation` scheme gives it the session's.
+- `tol`, `maxiters`: the tolerance and iteration limit of the Newton iterations on the bound;
+- `nomode`: what to do when the iterations do not converge, as for the message of a likelihood
+  alone that grows without bound. `:project` keeps the last Gaussian, and `:leave` returns the
+  product unprojected (see [`LaplaceForm`](@ref));
+- `backend`: the expectation backend for the quadrature of the bound, one that gives a point set
+  for a Gaussian. The default, `nothing`, means `ExpectationApproximations.EADefault()`. RxInfer's
+  `NaturalGradientPropagation` scheme passes the backend of the inference session.
 """
 struct VariationalForm{T <: Real, B}
     tol::T
@@ -49,12 +52,12 @@ VariationalForm(; tol::Real = 1.0e-10, maxiters::Integer = 100, nomode::Symbol =
     variational_form(form::VariationalForm, density, previous = nothing)
         -> (; distribution, logZ, mode, converged, iterations, method)
 
-The projection of [`VariationalForm`](@ref), as [`laplace_form`](@ref)'s: `distribution` is the
-projected `density` and `logZ` its evidence lower bound, `nothing` for a closed form that passes.
-`method` is `:closed_form`, `:point_mass`, `:discrete`, `:variational` (whose iterations
-`converged` in `iterations` steps), or `:unprojected` under `nomode = :leave`. `mode` is the
-Gaussian's mean pushed forward, where the next projection of the same variable starts,
-`previous`.
+Project `density` as [`VariationalForm`](@ref) describes. The result is as for
+[`laplace_form`](@ref): `distribution` is the projected density, and `logZ` is its evidence lower
+bound, or `nothing` for a closed form that is returned as it is. `method` is `:closed_form`,
+`:point_mass`, `:discrete`, `:variational` (with `converged` and `iterations` from its
+iterations), or `:unprojected` under `nomode = :leave`. `mode` is the mean of the Gaussian, pushed
+forward; the next projection of the same variable starts there, as `previous`.
 """
 variational_form(form::VariationalForm, density, previous = nothing) = project_form(form, density, previous)
 

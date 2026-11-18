@@ -1,32 +1,36 @@
 """
     LaplaceForm(; tol = 1e-10, maxiters = 100, nomode = :project)
 
-A form constraint for universal inference: the projection of a belief with no closed form, such
-as the product of a prior and the messages of [`ExpectationRuleFallback`](@ref), onto the form
-every belief takes, by [`laplace_form`](@ref):
+A form constraint for universal inference. It projects a belief that has no closed form, such as
+the product of a prior and the messages of [`ExpectationRuleFallback`](@ref), with
+[`laplace_form`](@ref):
 
-- a closed form, a distribution or a point mass, passes as it is, so a conjugate variable never
-  changes;
-- a product with a finite discrete factor, a categorical, is normalised exactly over its support;
-- any other product is Laplace's approximation in the unconstrained coordinates of its domain:
-  on the real line a Gaussian of ExponentialFamily, `NormalMeanVariance` or
-  `MvNormalMeanCovariance`, the types the rules of the Gaussian nodes take, and an
-  `ExpectationApproximations.TransformedGaussian` on any other domain. The domain is that of the first factor that has one, a prior's support.
+- a closed form, a distribution or a point mass, is returned as it is, so a conjugate variable
+  does not change;
+- a product with a finite discrete factor, such as a categorical, is normalised exactly over its
+  support;
+- any other product is replaced by Laplace's approximation in the unconstrained coordinates of its
+  domain. On the real line this is a Gaussian of ExponentialFamily, `NormalMeanVariance` or
+  `MvNormalMeanCovariance`, the types that the rules of the Gaussian nodes take. On any other
+  domain it is an `ExpectationApproximations.TransformedGaussian`. The domain is taken from the
+  first factor that has one, such as the support of a prior.
 
-Each projection reports the log of the product's normaliser, Laplace's evidence approximation,
-which completes the log scale of a message whose normaliser was unknown.
+Each projection also returns the log of the product's normaliser, Laplace's approximation of the
+evidence. It completes the log scale of a message whose normaliser was unknown.
 
-The type is a plain description of the projection; an engine applies it as a form constraint,
-RxInfer through its option `default_form_constraint = LaplaceForm()`.
+The type only describes the projection. An engine applies it as a form constraint; RxInfer does
+so with the option `default_form_constraint = LaplaceForm()`.
 
 # Keywords
-- `tol`, `maxiters`: of the Newton iterations of `ExpectationApproximations.laplace`.
-- `nomode`: what a product becomes when Newton's iterations do not converge, so that Laplace
-  found no mode, as for a likelihood's message alone that rises without bound. `:project`, the
-  default, keeps the Gaussian at the last iterate, whose curvature is floored; `:leave` leaves the
-  product as it is, unprojected. A message is better left: a Gaussian Laplace did not find would
-  feed an exact rule downstream, where the product unprojected goes to the rule fallback. RxInfer's
-  `LocalLaplace` projects marginals with `:project` and messages with `:leave`.
+- `tol`, `maxiters`: the tolerance and iteration limit of the Newton iterations of
+  `ExpectationApproximations.laplace`.
+- `nomode`: what to do when the Newton iterations do not converge and Laplace's method finds no
+  mode, as for the message of a likelihood alone that grows without bound. With `:project`, the
+  default, the result is the Gaussian at the last iterate, with a floored curvature. With
+  `:leave`, the product is returned unprojected. For a message, `:leave` is the better choice: a
+  Gaussian without a mode would be fed to an exact rule downstream, while an unprojected product
+  goes to the rule fallback. RxInfer's `LocalLaplace` projects marginals with `:project` and
+  messages with `:leave`.
 """
 struct LaplaceForm{T <: Real}
     tol::T
@@ -44,18 +48,26 @@ LaplaceForm(; tol::Real = 1.0e-10, maxiters::Integer = 100, nomode::Symbol = :pr
     laplace_form(form::LaplaceForm, density, previous = nothing)
         -> (; distribution, logZ, mode, converged, iterations, method)
 
-The projection of [`LaplaceForm`](@ref): `distribution` is the projected `density`, and `logZ` the
-log of the normaliser of `density`, `nothing` for a closed form that passes. `method` says how it
-was projected: `:closed_form` (passed as it is), `:point_mass`, `:discrete` (normalised exactly)
-or `:laplace`, whose Newton iterations `converged` in `iterations` steps; or `:unprojected`, a
-product Laplace found no mode for, left as it is under `nomode = :leave`. `previous`, the mode
-of an earlier projection of the same variable, is where Laplace's iterations start; without one
-they start at the mean of the first factor that has one, or in the middle of the domain. A product
-that does not tell its dimension, such as a likelihood's message alone, is taken to be of a number.
+Project `density` as [`LaplaceForm`](@ref) describes. `distribution` is the projected density, and
+`logZ` is the log of the normaliser of `density`, or `nothing` for a closed form that is
+returned as it is. `method` says how `density` was projected:
+
+- `:closed_form`, returned as it is;
+- `:point_mass`;
+- `:discrete`, normalised exactly;
+- `:laplace`, with `converged` and `iterations` from the Newton iterations;
+- `:unprojected`, a product for which Laplace's method found no mode, returned as it is under
+  `nomode = :leave`.
+
+The Newton iterations start at `previous`, the mode of an earlier projection of the same
+variable. Without it they start at the mean of the first factor that has one, or in the middle of
+the domain. A product that does not give its dimension, such as the message of a likelihood
+alone, is assumed to be over a number.
 
 # Throws
-An `ArgumentError` when the product has no factor that tells its dimension, a distribution or a
-log-density with a domain, no `previous` mode, and does not take a number.
+An `ArgumentError` when the product has no factor that gives its dimension (a distribution or a
+log-density with a domain), there is no `previous` mode, and the product does not accept a
+number.
 """
 laplace_form(form::LaplaceForm, density, previous = nothing) = project_form(form, density, previous)
 

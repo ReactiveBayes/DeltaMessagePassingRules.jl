@@ -2,58 +2,64 @@
     ExpectationRuleFallback()
     ExpectationRuleFallback(propagation; energy = …)
 
-A rule fallback for universal inference: where no rule fits, the messages, joint marginals and
-average energies of a node, computed from its log-density with the expectation backend of the
-rule context, `ctx.expectation`. An engine consults it through
-MessagePassingRulesBase's `call_fallback` and `call_energy_fallback`, never in place of
-a rule that exists.
+A rule fallback for universal inference. When a node has no rule for a message, a joint marginal
+or an average energy, the fallback computes it from the node's log-density, using the expectation
+backend of the rule context, `ctx.expectation`. An engine calls it through
+MessagePassingRulesBase's `call_fallback` and `call_energy_fallback`, and only when no rule
+exists.
 
 Towards an interface of a stochastic node, the message is the expected log-density
-`x ↦ E_q[log f(x, ·)]` over every other input, messages and marginals alike, as the
-[`nodefunction`](@extref MessagePassingRulesBase.nodefunction) of the node defines `f`: a point
-mass is plugged in, a categorical summed exactly and a Gaussian integrated by the backend. Where
-every other input is a point mass the message is the node's log-density itself, and its log scale
-is known up to its normaliser, which a projection such as [`LaplaceForm`](@ref) computes.
+`x ↦ E_q[log f(x, ·)]` over all other inputs, both messages and marginals, with `f` given by the
+[`nodefunction`](@extref MessagePassingRulesBase.nodefunction) of the node. A point mass is
+plugged in, a categorical is summed exactly, and a Gaussian is integrated by the backend. When
+all other inputs are point masses, the message is the node's log-density, and its log scale is
+known up to the normaliser, which a projection such as [`LaplaceForm`](@ref) computes.
 
-A deterministic node, such as the [`DeltaFn`](@ref) of `z := f(x, y)` without an approximation
-method, has its function from the engine's node object,
-[`getnodefn`](@extref MessagePassingRulesBase.getnodefn)`(ctx.node, Target(:out))`. Towards `out`
-the message is the moment-matched pushforward of the inputs' messages through it, a Gaussian, or
-a point mass when every input is one. Towards an input it is the message on `out` pulled back
-through the function, `x ↦ E[log m_out(f(…, x, …))]` over the other inputs: exact for a single
-input, whose log scale is then the message on `out`'s up to the normaliser.
+For a deterministic node, such as the [`DeltaFn`](@ref) of `z := f(x, y)` without an
+approximation method, the fallback gets the function from the engine's node object,
+[`getnodefn`](@extref MessagePassingRulesBase.getnodefn)`(ctx.node, Target(:out))`. Towards `out`,
+the message is the moment-matched pushforward of the input messages through the function: a
+Gaussian, or a point mass when all inputs are point masses. Towards an input, it is the message
+on `out` pulled back through the function, `x ↦ E[log m_out(f(…, x, …))]`, in expectation over
+the other inputs. This is exact for a single input, and its log scale is then that of the message
+on `out`, up to the normaliser.
 
-A cluster's joint marginal is the joint Laplace approximation of the node's log-density times the
-members' messages, ExponentialFamily's Gaussian on the real line, and the fallback says how it
-went: `with_outcome(joint, (method = :joint_laplace, converged, iterations))`, which an engine
-hands on to its events and an inference report reads.
+The joint marginal of a cluster is the joint Laplace approximation of the node's log-density
+times the messages of the cluster members, a Gaussian of ExponentialFamily on the real line. The
+fallback reports how the approximation went with
+`with_outcome(joint, (method = :joint_laplace, converged, iterations))`, which an engine passes
+on to its events and which an inference report reads.
 
-Unlike [`NodeFunctionRuleFallback`](@extref MessagePassingRulesBase.NodeFunctionRuleFallback),
-which plugs in the inputs' means, the message keeps their spread: a categorical's probabilities and
-a Gaussian's variance.
+[`NodeFunctionRuleFallback`](@extref MessagePassingRulesBase.NodeFunctionRuleFallback) plugs in
+the means of the inputs. This fallback keeps their spread, such as the probabilities of a
+categorical and the variance of a Gaussian.
 
-Under cavity propagation, `ExpectationRuleFallback(propagation)` takes the form of the
-variables' sites, a [`LaplaceForm`](@ref) (Laplace propagation), a [`MomentForm`](@ref)
-(expectation propagation) or a [`NaturalGradientForm`](@ref) (natural-gradient propagation), and
-sends messages that the sites project, rather than ones that are projected on their own:
+For cavity propagation, `ExpectationRuleFallback(propagation)` takes the form of the variables'
+sites: a [`LaplaceForm`](@ref) (Laplace propagation), a [`MomentForm`](@ref) (expectation
+propagation) or a [`NaturalGradientForm`](@ref) (natural-gradient propagation). It then sends
+unprojected messages, which the sites project:
 
-- towards `out` of a deterministic node, the pushforward of its inputs' messages, unprojected, a
+- towards `out` of a deterministic node, the pushforward of the input messages, a
   [`PushforwardMessage`](@ref);
-- towards one input of a node with several random inputs, belief propagation's message, the
-  factor integrated against the other edges' messages, a [`TiltedJointMessage`](@ref), when those
-  messages are Gaussians or point masses. An input that is not a Gaussian, such as a Gamma
-  precision, or that comes as a mean-field marginal, keeps the expected log-density above;
-- every other message as above.
+- towards one input of a node with several random inputs, the belief-propagation message, the
+  factor integrated against the messages on the other edges, a [`TiltedJointMessage`](@ref).
+  This requires those messages to be Gaussians or point masses. If another input is not a
+  Gaussian, such as a Gamma precision, or comes as a mean-field marginal, the message is the
+  expected log-density described above;
+- all other messages as described above.
 
-Its free-energy term is `energy`: `:cavity`, expectation propagation's, [`cavity_energy`](@ref),
-when the engine gives it the node's inbound messages as well as the marginals, the default for a
-`LaplaceForm` and a `MomentForm`; or `:average`, the average energy `-E_q[log f]` under the
-marginals, as without propagation, the default for a `NaturalGradientForm`, whose fixed point is a
-stationary point of the free energy with these terms.
+The free-energy term of the node is set by `energy`:
+
+- `:cavity`, the term of expectation propagation, [`cavity_energy`](@ref). It needs the engine to
+  pass the node's inbound messages as well as the marginals. This is the default for a
+  `LaplaceForm` and a `MomentForm`.
+- `:average`, the average energy `-E_q[log f]` under the marginals, as without propagation. This
+  is the default without a form and for a `NaturalGradientForm`, whose fixed point is a
+  stationary point of the free energy with these terms.
 
 # Throws
 An `ArgumentError` when the context has no expectation backend. RxInfer's fallback schemes, such
-as `fallback = LocalLaplace()`, give one; so does
+as `fallback = LocalLaplace()`, set one, and so does
 `options = (context = (expectation = ExpectationApproximations.EADefault(),),)`.
 
 See also [`LaplaceForm`](@ref), [`site`](@ref).
@@ -138,10 +144,11 @@ end
 """
     ExpectedLogDensity(f, prepared, slots)
 
-`x ↦ E[f(; …)]`, the keyword log-density `f` of a node in expectation over its inputs, prepared
-once (`prepared`, `nothing` for none), at `x` for the target. `slots` names each keyword argument of `f` and where its
-value comes from: the position of an input in the prepared expectation, `Free()` for the target,
-or a tuple of either for a group.
+The callable `x ↦ E[f(; …)]`: the keyword log-density `f` of a node, in expectation over its
+inputs, evaluated at `x` for the target. `prepared` is the prepared expectation over the inputs,
+or `nothing` when there are none. `slots` maps each keyword argument of `f` to the source of its
+value: the position of an input in the prepared expectation, `Free()` for the target, or a tuple
+of these for a group.
 """
 struct ExpectedLogDensity{N, S, F, P}
     f::F

@@ -7,35 +7,37 @@
     NaturalGradientForm(; alpha = 0.5, beta = 0.2, max_step = Inf, tol = 1e-8, backend = nothing)
 
 The site form of natural-gradient propagation (Lukashchuk et al., *Information Geometry of
-Message Passing*), the third beside [`LaplaceForm`](@ref) and [`MomentForm`](@ref): a raw message's
-site, at [`site`](@ref), is a damped step from the edge's previous site towards
+Message Passing*), the third site form after [`LaplaceForm`](@ref) and [`MomentForm`](@ref). For a
+raw message,
+[`site`](@ref) takes a damped step from the previous site of the edge towards
 
 ```math
 \\eta^\\star = G(q)^{-1} \\operatorname{Cov}_q[T(x), \\ell(x)] = \\nabla_\\mu \\mathbb{E}_q[\\ell],
 ```
 
-[`natural_gradient_target`](@ref), with `ℓ` the message's log-density and `q` the variable's
-marginal, the cavity times the previous site, in the cavity's exponential family: its sufficient
-statistics `T` and Fisher information `G`. The step is the heavy ball
+computed by [`natural_gradient_target`](@ref). Here `ℓ` is the log-density of the message, and `q`
+is the marginal of the variable, the cavity times the previous site. `T` and `G` are the
+sufficient statistics and the Fisher information of the cavity's exponential family. The step is
+a heavy-ball step,
 
 ```math
 v \\leftarrow \\beta v + \\alpha (\\eta^\\star - \\eta), \\qquad \\eta \\leftarrow \\eta + v,
 ```
 
-in natural parameters, `v` shortened to the length `max_step` and then halved until the marginal,
-the cavity plus the new site, is proper. At a fixed point every site is its target, and the
-marginal is a stationary point of the variational free energy over the family: under a Gaussian
-cavity, the Gaussian of conjugate-computation variational inference.
+in natural parameters. `v` is shortened to length `max_step` and then halved until the marginal,
+the cavity plus the new site, is proper. At a fixed point each site equals its target, and the
+marginal is a stationary point of the variational free energy over the family. With a Gaussian
+cavity, it is the Gaussian of conjugate-computation variational inference.
 
 # Keywords
-- `alpha`, `beta`: the step size and the momentum, `0 < alpha` and `0 ≤ beta < 1`. `alpha = 1`
-  and `beta = 0` jump to the target;
-- `max_step`: the longest step `v` in natural parameters, `Inf` for none;
+- `alpha`, `beta`: the step size and the momentum, with `0 < alpha` and `0 ≤ beta < 1`. With
+  `alpha = 1` and `beta = 0` the site jumps to the target;
+- `max_step`: the maximum length of the step `v` in natural parameters, `Inf` for no limit;
 - `tol`: a site has `converged` when `‖η⋆ - η‖ ≤ tol (1 + ‖η‖)`;
-- `backend`: the expectation backend of the targets, any backend of ExpectationApproximations
-  that prepares a point set for the families of the sites; `nothing`, the default, for the rules
+- `backend`: the expectation backend for the targets, any backend of ExpectationApproximations
+  that prepares a point set for the families of the sites. The default, `nothing`, uses the rules
   of [`natural_gradient_target`](@ref): Gauss–Hermite points for a Gaussian, and Gauss–Legendre
-  points in the unconstrained coordinate of any other family's domain.
+  points in the unconstrained coordinate of the domain for other families.
 """
 struct NaturalGradientForm{T <: Real, B}
     alpha::T
@@ -94,35 +96,41 @@ end
 """
     natural_gradient_target(message, q, backend) -> AbstractVector
 
-The natural-gradient target of `message` at the belief `q`, a proper member of an exponential
-family: `η⋆ = G(q)⁻¹ Cov_q[T, ℓ] = ∇_μ E_q[ℓ]`, with `ℓ` the message's log-density, in
-ExponentialFamily's natural parameters of `q`'s family, those of
-`getnaturalparameters(convert(ExponentialFamilyDistribution, q))`: `(ξ, -Λ/2)` for a Gaussian, its
-precision `Λ` flattened in more than one dimension, and `(a - 1, -b)` for a Gamma of shape `a`
-and rate `b`. It is the site of `message` at the fixed point of [`NaturalGradientForm`](@ref).
-The expectations are by `backend` over `q`, `nothing` for the rules of
-[`NaturalGradientForm`](@ref), and use `ℓ` only at its points, never its derivatives:
+Return the natural-gradient target of `message` at the belief `q`, a proper member of an
+exponential family. With `ℓ` the log-density of the message, the target is
+`η⋆ = G(q)⁻¹ Cov_q[T, ℓ] = ∇_μ E_q[ℓ]`. It is expressed in ExponentialFamily's natural parameters
+of the family of `q`, those of `getnaturalparameters(convert(ExponentialFamilyDistribution, q))`:
+`(ξ, -Λ/2)` for a Gaussian, with the precision `Λ` flattened in more than one dimension, and
+`(a - 1, -b)` for a Gamma with shape `a` and rate `b`. At the fixed point of
+[`NaturalGradientForm`](@ref), the site of `message` equals its target.
 
-- `q` a Gaussian of any dimension, by Stein's lemma (Bonnet and Price): with `m` and `Σ` the mean
-  and covariance of `q`, `E[∇ℓ] = Σ⁻¹ E[(x - m) ℓ]` and
+The expectations are computed by `backend` over `q`; `nothing` selects the rules described in
+[`NaturalGradientForm`](@ref). They use the values of `ℓ` at the points only, not its
+derivatives:
+
+- if `q` is a Gaussian of any dimension, by Stein's lemma (Bonnet and Price). With `m` and `Σ` the
+  mean and covariance of `q`, `E[∇ℓ] = Σ⁻¹ E[(x - m) ℓ]` and
   `E[∇²ℓ] = Σ⁻¹ E[((x - m)(x - m)ᵀ - Σ) ℓ] Σ⁻¹`, so that `Λ⋆ = -E[∇²ℓ]` and
   `ξ⋆ = E[∇ℓ] + Λ⋆ m`;
-- any other family by the definition, the covariance centred, with the sufficient statistics and
-  the Fisher information of ExponentialFamily.
+- for any other family, by the definition, with a centred covariance and the sufficient
+  statistics and Fisher information of ExponentialFamily.
 
-`ℓ` is a raw message's log-density, a [`TiltedJointMessage`](@ref)'s `log ∫ f ∏ cⱼ` (belief
-propagation's message), a [`PushforwardMessage`](@ref)'s density, or a distribution's of another
-family than `q`'s, such as a log-normal towards a Gamma.
+`ℓ` can be the log-density of a raw message, the `log ∫ f ∏ cⱼ` of a
+[`TiltedJointMessage`](@ref) (the belief-propagation message), the density of a
+[`PushforwardMessage`](@ref), or the log-density of a distribution from a family other than that
+of `q`, such as a log-normal towards a Gamma.
 
 # Extending
 
-A package with a message type whose target has a closed form adds a method for its message and
-the family of `q`, such as `natural_gradient_target(::MyMessage, q::GammaDistributionsFamily, backend)`;
-it is then used in place of the quadrature. Such a raw message type also says it is not closed,
-`DeltaMessagePassingRules.is_closed_form(::MyMessage) = false`, so that it gets a site.
+A package with a message type whose target has a closed form can add a method for its message
+type and the family of `q`, such as
+`natural_gradient_target(::MyMessage, q::GammaDistributionsFamily, backend)`. That method is then
+used instead of quadrature. The package must also declare that the raw message type is not a
+closed form, `DeltaMessagePassingRules.is_closed_form(::MyMessage) = false`, so that it gets a
+site.
 
-When ClosedFormExpectations is loaded, the target is in closed form wherever its Williams product
-`E_q[ℓ ∇ log q]` is, for a message whose log-density is a distribution's: see
+When ClosedFormExpectations is loaded, the target has a closed form wherever the Williams product
+`E_q[ℓ ∇ log q]` has one, for a message whose log-density is that of a distribution. See
 [`closed_form_integrand`](@ref).
 """
 function natural_gradient_target end
@@ -139,16 +147,16 @@ end
 """
     closed_form_integrand(message)
 
-A distribution `p` whose log-density is `message`'s up to a constant, or `nothing`. When
-ClosedFormExpectations is loaded, the [`natural_gradient_target`](@ref) of such a message is in
-closed form wherever ClosedFormExpectations' Williams product `E_q[log p(x) ∇ log q(x)]` is, at a
-univariate Gaussian or a Gamma belief `q`; elsewhere it is by quadrature. The constant does not
-change the target, so `p` need not be normalised.
+Return a distribution `p` whose log-density equals that of `message` up to a constant, or
+`nothing`. When ClosedFormExpectations is loaded, the [`natural_gradient_target`](@ref) of such
+a message has a closed form wherever ClosedFormExpectations has one for the Williams product
+`E_q[log p(x) ∇ log q(x)]`, at a univariate Gaussian or Gamma belief `q`. Otherwise the target is
+computed by quadrature. The constant does not change the target, so `p` need not be normalised.
 
-A distribution is its own. With ClosedFormExpectations loaded, so is a Gamma message pulled back
-through `exp`, the message of a Poisson count towards its log rate: ClosedFormExpectations'
-`LogGamma`. A package with a message type of its own adds a method that returns such a
-distribution.
+For a distribution, `p` is the distribution itself. With ClosedFormExpectations loaded, a Gamma
+message pulled back through `exp`, the message of a Poisson count towards its log rate, also has
+one: ClosedFormExpectations' `LogGamma`. A package with its own message type can add a method
+that returns such a distribution.
 """
 closed_form_integrand(message) = nothing
 closed_form_integrand(message::Distribution) = message
@@ -156,10 +164,10 @@ closed_form_integrand(message::Distribution) = message
 """
     closed_form_target(p, q)
 
-The natural-gradient target of the log-density of the distribution `p` at the belief `q` in closed
-form, as [`natural_gradient_target`](@ref)'s, or `nothing`. The extension of
-DeltaMessagePassingRules for ClosedFormExpectations defines it from ClosedFormExpectations'
-Williams product; without it, it is `nothing`.
+Return the natural-gradient target of the log-density of the distribution `p` at the belief `q`
+in closed form, in the parameters of [`natural_gradient_target`](@ref), or `nothing` if there is
+no closed form. The package extension for ClosedFormExpectations defines it from the Williams
+product of ClosedFormExpectations. Without the extension it returns `nothing`.
 """
 closed_form_target(p, q) = nothing
 
@@ -321,32 +329,35 @@ end
 """
     site(form::NaturalGradientForm, message, cavity, previous = nothing) -> (; site, outcome)
 
-The site of natural-gradient propagation, in the family of `cavity`, any exponential family that
-has sites: a Gaussian of any dimension, a Gamma, or another continuous univariate family.
+Return the site of natural-gradient propagation, in the family of `cavity`. The family can be any
+exponential family that has sites: a Gaussian of any dimension, a Gamma, or another continuous
+univariate family.
 
 - A point mass is its own site.
-- A closed message, a distribution, is its own site against a `missing` cavity, or one of its
-  own family. A Gamma enters as a `GammaShapeRate`, and a member of another family that is not a
-  Gaussian as an `ExponentialFamilyDistribution`, so that its products with the family's sites,
-  proper or not, are closed.
-- A raw message against a `missing` cavity has none yet, `missing`, with the outcome
+- A closed message, a distribution, is its own site if the cavity is `missing` or of the same
+  family. A Gamma is converted to a `GammaShapeRate`, and a member of another non-Gaussian family
+  to an `ExponentialFamilyDistribution`, so that its products with the sites of the family are
+  closed, whether those sites are proper or not.
+- A raw message against a `missing` cavity has no site yet: `site` is `missing` and the outcome is
   `(; method = :waiting)`.
-- Against a cavity in no family that has sites, such as a discrete one, the message passes, as
+- If the cavity is in no family that has sites, such as a discrete one, the message passes, as
   under [`LaplaceForm`](@ref).
-- Any other message, a raw log-density, a [`TiltedJointMessage`](@ref), a
-  [`PushforwardMessage`](@ref), or a distribution of another family, such as a log-normal towards a
-  Gamma, takes a damped step from the edge's previous site, `previous.η` with the velocity
-  `previous.velocity`, towards its [`natural_gradient_target`](@ref) at the marginal `q`, the
-  cavity times that site: the flat site, `η = 0`, the first time, so that `q` is the cavity, which
-  must then be proper. The step is halved until the marginal is proper, at most $(MAX_HALVINGS)
-  times, and left out otherwise; a previous site that, against a cavity that has moved, no
-  longer gives a proper marginal is halved first.
+- Any other message takes a damped step. This covers a raw log-density, a
+  [`TiltedJointMessage`](@ref), a [`PushforwardMessage`](@ref), and a distribution of another
+  family, such as a log-normal towards a Gamma. The step starts from the previous site of the
+  edge, `previous.η`, with the velocity `previous.velocity`, and goes towards the
+  [`natural_gradient_target`](@ref) at the marginal `q`, the cavity times that site. The first
+  time, the previous site is the flat site, `η = 0`, so `q` is the cavity, which must then be
+  proper. The step is halved until the marginal is proper, at most $(MAX_HALVINGS) times, and is
+  dropped otherwise. If the cavity has moved and the previous site no longer gives a proper
+  marginal, the previous site is halved first.
 
-The outcome of a step is `(; method = :natural_gradient, converged, iterations, η, velocity)`:
-`converged` when `‖η⋆ - η‖ ≤ tol (1 + ‖η‖)` before the step, the steps taken on the edge, and the
-site's natural parameters and velocity after it, the next `previous`. A target that is not finite
-leaves the last site as it is, the site `nothing`, or sends the flat site at an edge's first step;
-a cavity no site makes proper leaves the last site.
+The outcome of a step is `(; method = :natural_gradient, converged, iterations, η, velocity)`.
+`converged` is true when `‖η⋆ - η‖ ≤ tol (1 + ‖η‖)` before the step, `iterations` is the number of
+steps taken on the edge, and `η` and `velocity` are the natural parameters and the velocity of
+the site after the step, to be passed as the next `previous`. If the target is not finite, the
+last site stays as it is (`site` is `nothing`), or the flat site is sent at the first step of an
+edge. If no site makes the marginal proper against the cavity, the last site stays.
 """
 function site(form::NaturalGradientForm, message, cavity, previous = nothing)
     message isa PointMass && return (; site = message, outcome = (; method = :closed_form))

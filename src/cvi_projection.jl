@@ -51,11 +51,12 @@ end
                     sampling_strategy = FullSampling(10))
 
 !!! warning "Deprecated"
-    `CVIProjection` is deprecated, and its constructor warns once per call site. Natural-gradient
-    propagation, RxInfer's `infer(...; fallback = NaturalGradientPropagation())`, replaces it: it
-    needs no method on the Delta node, samples nothing, and its sites are in the family of each
-    variable, a Gaussian, a Gamma or a Beta, by the [`NaturalGradientForm`](@ref) of this
-    package. `CVIProjection` will be removed in the next breaking release.
+    `CVIProjection` is deprecated, and its constructor warns once per call site. Use
+    natural-gradient propagation instead, with RxInfer's
+    `infer(...; fallback = NaturalGradientPropagation())`. It needs no method on the Delta node
+    and does not sample. Its sites, computed with the [`NaturalGradientForm`](@ref) of this
+    package, are in the family of each variable, such as a Gaussian, a Gamma or a Beta.
+    `CVIProjection` will be removed in the next breaking release.
 
 The Delta node's projection method, for [`DeltaApproximation`](@ref)`(method = CVIProjection())`:
 it samples the inputs, pushes the samples through the function, and projects the result onto an

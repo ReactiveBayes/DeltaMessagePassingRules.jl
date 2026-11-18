@@ -1,28 +1,33 @@
 """
     MomentForm(; tol = 1e-10, maxiters = 100, nomode = :project, points = 20, backend = nothing)
 
-A form constraint for universal inference, [`LaplaceForm`](@ref)'s sibling for expectation
-propagation: the projection of a belief with no closed form onto the Gaussian with its mean and
-covariance, by [`moment_form`](@ref), in the unconstrained coordinates of its domain.
+A form constraint for universal inference, the counterpart of [`LaplaceForm`](@ref) for
+expectation propagation. It projects a belief that has no closed form onto the Gaussian with the
+same mean and covariance, in the unconstrained coordinates of its domain, with
+[`moment_form`](@ref).
 
-- a closed form, a distribution or a point mass, passes as it is;
-- a product with a finite discrete factor, a categorical, is normalised exactly over its support;
-- any other product is `ExpectationApproximations.moment_matching`: the backend's points on the
-  product's own Laplace approximation, weighted by the product against it. On the real line it
-  is ExponentialFamily's `NormalMeanVariance` or `MvNormalMeanCovariance`, and an
-  `ExpectationApproximations.TransformedGaussian` on any other domain.
+- a closed form, a distribution or a point mass, is returned as it is;
+- a product with a finite discrete factor, such as a categorical, is normalised exactly over its
+  support;
+- any other product is replaced by `ExpectationApproximations.moment_matching`. The backend
+  places its points on the Laplace approximation of the product, and weights them by the ratio of
+  the product to that approximation. On the real line the result is ExponentialFamily's
+  `NormalMeanVariance` or `MvNormalMeanCovariance`, and on any other domain an
+  `ExpectationApproximations.TransformedGaussian`.
 
-Each projection reports the log of the product's normaliser, from the same quadrature.
+Each projection also returns the log of the product's normaliser, from the same quadrature.
 
 # Keywords
-- `tol`, `maxiters`: of the Newton iterations that place the points;
-- `nomode`: what a product becomes when they do not converge, as for [`LaplaceForm`](@ref):
-  `:project` keeps the moments on a unit Gaussian at the start, `:leave` leaves the product;
-- `points`: Gauss–Hermite points per dimension;
+- `tol`, `maxiters`: the tolerance and iteration limit of the Newton iterations that place the
+  points;
+- `nomode`: what to do when the iterations do not converge, as for [`LaplaceForm`](@ref).
+  `:project` computes the moments on a unit Gaussian at the starting point, and `:leave` returns
+  the product unprojected;
+- `points`: the number of Gauss–Hermite points per dimension;
 - `backend`: the quadrature that places the points, any backend of ExpectationApproximations that
   prepares a point set for a Gaussian, such as `SphericalRadialCubature()` (2d points in d
-  dimensions, exact to degree 3) or `GenUnscented()`; `nothing` is `GaussHermite(points)`, a
-  product grid of `points`ᵈ points, built once.
+  dimensions, exact to degree 3) or `GenUnscented()`. With `nothing`, it is
+  `GaussHermite(points)`, a product grid of `points`ᵈ points, built once.
 """
 struct MomentForm{T <: Real, B}
     tol::T
@@ -44,11 +49,12 @@ MomentForm(; tol::Real = 1.0e-10, maxiters::Integer = 100, nomode::Symbol = :pro
     moment_form(form::MomentForm, density, previous = nothing)
         -> (; distribution, logZ, mode, converged, iterations, method)
 
-The projection of [`MomentForm`](@ref), as [`laplace_form`](@ref)'s: `distribution` is the projected
-`density` and `logZ` the log of its normaliser, `nothing` for a closed form that passes. `method`
-is `:closed_form`, `:point_mass`, `:discrete`, `:moment_matching`, or `:unprojected` under
-`nomode = :leave`. `mode` is the Gaussian's mean, where the next projection of the same variable
-starts, `previous`.
+Project `density` as [`MomentForm`](@ref) describes. The result is as for
+[`laplace_form`](@ref): `distribution` is the projected density, and `logZ` is the log of its
+normaliser, or `nothing` for a closed form that is returned as it is. `method` is `:closed_form`,
+`:point_mass`, `:discrete`, `:moment_matching`, or `:unprojected` under `nomode = :leave`. `mode`
+is the mean of the Gaussian; the next projection of the same variable starts there, as
+`previous`.
 """
 moment_form(form::MomentForm, density, previous = nothing) = project_form(form, density, previous)
 
