@@ -1,5 +1,5 @@
-# `CVIProjection`. The rules draw from the context's generator, a StableRNG here; the checks are
-# statistical and loose.
+# `CVIProjection`, deprecated: its constructor warns. The rules draw from the context's generator,
+# a StableRNG here; the checks are statistical and loose.
 
 @testmodule CVIContext begin
     using MessagePassingRulesBase: MessagePassingRulesBase, Target, RuleContext
@@ -34,7 +34,10 @@ end
     # The extension opts the method in; without it, the error would add this hint.
     @test DeltaApproximation(method = CVIProjection()).method isa CVIProjection
     @test contains(delta_method_hint(CVIProjection()), "using ExponentialFamilyProjection")
-    @test_logs (:warn, r"does not use a known inverse") DeltaApproximation(method = CVIProjection(), inverse = identity)
+    @test_logs (:warn, r"does not use a known inverse") match_mode = :any DeltaApproximation(method = CVIProjection(), inverse = identity)
+    # deprecated, in favour of natural-gradient propagation
+    @test_deprecated r"NaturalGradientPropagation" CVIProjection()
+    @test_deprecated CVIProjection(100, nothing, nothing, ProposalDistributionContainer{Any}(nothing), MeanBased())
 
     form1, form2 = ProjectedTo(NormalMeanVariance), ProjectedTo(MvNormalMeanScalePrecision, 2)
     with_forms = CVIProjection(in_prjparams = (in_1 = form1, in_2 = form2))
