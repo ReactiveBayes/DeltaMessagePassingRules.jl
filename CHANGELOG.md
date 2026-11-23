@@ -94,10 +94,11 @@ documentation page "Universal inference" describes them.
     with ExponentialFamily's sufficient statistics and Fisher information, and by default
     Gauss–Legendre points in the unconstrained coordinate of the domain. Packages can add closed
     forms with methods for their message types.
-  - With ClosedFormExpectations loaded (a package extension), the target has a closed form
-    wherever ClosedFormExpectations' Williams product does, at a univariate Gaussian or Gamma
-    belief, for a message whose log-density is that of a distribution. Examples are a log-normal
-    or a Laplace message, and a Gamma message pulled back through `exp`.
+  - With ClosedFormExpectations 1.0 loaded (a package extension), the target has a closed form
+    wherever ClosedFormExpectations has one for the gradient `BayesBase.expectation_gradient`, at a
+    univariate Gaussian or Gamma belief, for a message whose log-density is that of a
+    distribution. Examples are a log-normal or a Laplace message, and a Gamma message pulled back
+    through `exp`.
     `closed_form_integrand(message)` returns the distribution for a message type, and
     `closed_form_target(p, q)` returns the closed form, or `nothing` if there is none.
   - `PushforwardMessage` has a log-density: the exact density of the pushforward for a monotone

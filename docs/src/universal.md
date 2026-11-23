@@ -348,8 +348,9 @@ A package can add a closed form of the target with a method of
 [`natural_gradient_target`](@ref) for its message type and the family of `q`.
 
 When [ClosedFormExpectations](https://github.com/biaslab/ClosedFormExpectations.jl) is loaded,
-the target has a closed form wherever ClosedFormExpectations has one for the Williams product
-`E_q[log p(x) ∇ log q(x)] = ∇ E_q[log p]`. This covers univariate Gaussian and Gamma beliefs, for
+the target has a closed form wherever ClosedFormExpectations has one for the gradient
+`∇ E_q[log p] = E_q[log p(x) ∇ log q(x)]`, which it computes with
+`BayesBase.expectation_gradient(ClosedFormExpectation(), Base.Fix1(logpdf, p), q)`. This covers univariate Gaussian and Gamma beliefs, for
 a message whose log-density is that of a distribution `p` up to a constant. Examples are a
 log-normal or a Laplace message, and a Gamma message pulled back through `exp`, which is the
 message of a Poisson count towards its log rate. A package can map its own message type to such

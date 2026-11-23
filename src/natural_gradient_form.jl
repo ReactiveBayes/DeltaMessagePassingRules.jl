@@ -129,8 +129,9 @@ used instead of quadrature. The package must also declare that the raw message t
 closed form, `DeltaMessagePassingRules.is_closed_form(::MyMessage) = false`, so that it gets a
 site.
 
-When ClosedFormExpectations is loaded, the target has a closed form wherever the Williams product
-`E_q[ℓ ∇ log q]` has one, for a message whose log-density is that of a distribution. See
+When ClosedFormExpectations is loaded, the target has a closed form wherever the gradient
+`∇ E_q[ℓ] = E_q[ℓ ∇ log q]` has one there, for a message whose log-density is that of a
+distribution. See
 [`closed_form_integrand`](@ref).
 """
 function natural_gradient_target end
@@ -149,8 +150,9 @@ end
 
 Return a distribution `p` whose log-density equals that of `message` up to a constant, or
 `nothing`. When ClosedFormExpectations is loaded, the [`natural_gradient_target`](@ref) of such
-a message has a closed form wherever ClosedFormExpectations has one for the Williams product
-`E_q[log p(x) ∇ log q(x)]`, at a univariate Gaussian or Gamma belief `q`. Otherwise the target is
+a message has a closed form wherever ClosedFormExpectations has one for the gradient
+`BayesBase.expectation_gradient(ClosedFormExpectation(), Base.Fix1(logpdf, p), q)`, at a univariate
+Gaussian or Gamma belief `q`. Otherwise the target is
 computed by quadrature. The constant does not change the target, so `p` need not be normalised.
 
 For a distribution, `p` is the distribution itself. With ClosedFormExpectations loaded, a Gamma
@@ -166,8 +168,8 @@ closed_form_integrand(message::Distribution) = message
 
 Return the natural-gradient target of the log-density of the distribution `p` at the belief `q`
 in closed form, in the parameters of [`natural_gradient_target`](@ref), or `nothing` if there is
-no closed form. The package extension for ClosedFormExpectations defines it from the Williams
-product of ClosedFormExpectations. Without the extension it returns `nothing`.
+no closed form. The package extension for ClosedFormExpectations defines it from that package's
+closed form of `BayesBase.expectation_gradient`. Without the extension it returns `nothing`.
 """
 closed_form_target(p, q) = nothing
 
