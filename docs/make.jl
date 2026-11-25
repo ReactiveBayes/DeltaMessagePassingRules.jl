@@ -28,7 +28,7 @@ makedocs(
     # Every docstring appears on a page.
     checkdocs = :all,
     plugins = [links],
-    pages = ["Overview" => "index.md", "The Delta node" => "delta.md", "Projection" => "projection.md", "Internals" => "internals.md"],
+    pages = ["Overview" => "index.md", "The Delta node" => "delta.md", "Projection" => "projection.md", "Universal inference" => "universal.md", "Internals" => "internals.md"],
     # Pages that show rule results as cards are larger than the defaults allow.
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", nothing) == "true",
