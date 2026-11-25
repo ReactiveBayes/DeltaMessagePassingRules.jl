@@ -616,6 +616,10 @@ value_dimension(density::Distribution{Univariate}) = 0
 value_dimension(density::RawDensity) = something(product_dimension(factors(density), nothing), 0)
 value_dimension(density) = length(density)
 
+# A raw message on numbers, as a likelihood's message left unprojected for want of a mode, is a
+# member of a joint as a distribution on numbers is
+is_number_density(density::RawDensity) = value_dimension(density) == 0
+
 # The values of several inputs, numbers and vectors, as one vector, and back
 pack(values) = reduce(vcat, map(v -> v isa Real ? [float(v)] : collect(float.(v)), values))
 function unpack(v, layout, i)

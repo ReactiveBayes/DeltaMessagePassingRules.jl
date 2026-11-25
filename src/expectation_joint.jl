@@ -102,7 +102,7 @@ function marginal_of_one(logp, density, message)
         product isa Distribution{Univariate} && return with_outcome(product, (method = :closed_form,))
     end
     domain = something(EA.domain(density), EA.RealLine())
-    result = EA.laplace(logp, mean(density), domain)
+    result = EA.laplace(logp, input_start(density), domain)
     outcome = (method = :joint_laplace, converged = result.converged, iterations = result.iterations)
     return with_outcome(exponential_family_gaussian(result.distribution), outcome)
 end
@@ -112,7 +112,7 @@ end
 function joint_laplace(logp, incoming)
     domains = map(density -> something(EA.domain(density), EA.RealLine()), incoming)
     domain = all(d -> d isa EA.RealLine, domains) ? EA.RealLine() : EA.Componentwise(domains...)
-    x0 = [mean(density) for density in incoming]
+    x0 = [input_start(density) for density in incoming]
     result = EA.laplace(logp, x0, domain)
     outcome = (method = :joint_laplace, converged = result.converged, iterations = result.iterations)
     return with_outcome(exponential_family_gaussian(result.distribution), outcome)
