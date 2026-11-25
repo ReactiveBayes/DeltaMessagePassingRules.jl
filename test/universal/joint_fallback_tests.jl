@@ -56,6 +56,19 @@ end
     @test outcome.method === :joint_laplace && outcome.converged
     @test mean(joint) ≈ Λ \ [2.0, 2.0]
     @test cov(joint) ≈ inv(Λ)
+
+    # A vector and a constant vector, as `θ` in `dot(x, θ)`: the constant is a block of its own,
+    # the vector its marginal, also from a message in weighted-mean form, a site's
+    dotted(x, θ) = x[1] * θ[1] + x[2] * θ[2]
+    for message in (MvNormalMeanCovariance([0.0, 0.0], [1.0 0.0; 0.0 2.0]), MvNormalWeightedMeanPrecision([0.0, 0.0], [1.0 0.0; 0.0 0.5]))
+        args = RuleArgs(m = (out = NormalMeanVariance(1.0, 0.5), in = (PointMass([1.0, 1.0]), message)))
+        cluster, outcome = MessagePassingRulesBase.unwrap_outcome(D.message(dotted, ClusterTarget((:in,)), args))
+        @test cluster isa MessagePassingRulesBase.FactorizedCluster && outcome.converged
+        blocks = MessagePassingRulesBase.cluster_blocks(cluster)
+        @test cluster[first(blocks)] isa PointMass && mean(cluster[first(blocks)]) == [1.0, 1.0]
+        @test mean(cluster[last(blocks)]) ≈ Λ \ [2.0, 2.0]
+        @test cov(cluster[last(blocks)]) ≈ inv(Λ)
+    end
 end
 
 @testitem "ExpectationRuleFallback: average energies, mean-field and joint" tags = [:universal] setup = [UniversalNodes] begin

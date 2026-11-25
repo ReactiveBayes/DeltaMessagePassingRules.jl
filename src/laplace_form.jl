@@ -76,15 +76,25 @@ laplace_form(form::LaplaceForm, density, previous = nothing) = project_form(form
 function project_form(form, density, previous)
     is_closed_form(density) && return (; distribution = closed_distribution(density), logZ = nothing, mode = previous, converged = true, iterations = 0, method = :closed_form)
     parts = factors(density)
-    point = findfirst(part -> part isa PointMass, parts)
-    isnothing(point) || return point_mass_form(density, parts, parts[point])
-    discrete = findfirst(part -> !isnothing(finite_support(part)), parts)
-    isnothing(discrete) || return discrete_form(density, finite_support(parts[discrete]))
+    point = find_member(part -> part isa PointMass, parts)
+    isnothing(point) || return point_mass_form(density, parts, point)
+    discrete = find_member(part -> !isnothing(finite_support(part)), parts)
+    isnothing(discrete) || return discrete_form(density, finite_support(discrete))
     return continuous_form(form, density, parts, previous)
 end
 
-# A closed form passes: anything but a product with no closed form or a log-density alone
-is_closed_form(density) = !(density isa Union{ProductOf, LinearizedProductOf, NodeFunctionLogPdf, ContinuousUnivariateLogPdf, ContinuousMultivariateLogPdf})
+# A product with no closed form, or a log-density alone: a raw density, with no moments
+const RawDensity = Union{ProductOf, LinearizedProductOf, NodeFunctionLogPdf, ContinuousUnivariateLogPdf, ContinuousMultivariateLogPdf}
+
+"""
+    is_closed_form(message) -> Bool
+
+Whether `message` is a closed form, a distribution or a point mass, which a projection passes and
+which is its own site, rather than a raw message: a product with no closed form, or a log-density
+alone. A package with a raw message type of its own declares it with
+`DeltaMessagePassingRules.is_closed_form(::MyMessage) = false`, so that it gets a site.
+"""
+is_closed_form(density) = !(density isa RawDensity)
 
 # A closed form as it passes: a proper `ExponentialFamilyDistribution`, the product of the sites of
 # natural-gradient propagation in a family other than the Gaussians and the Gammas, as its
@@ -92,15 +102,31 @@ is_closed_form(density) = !(density isa Union{ProductOf, LinearizedProductOf, No
 closed_distribution(density) = density
 closed_distribution(density::ExponentialFamilyDistribution) = isproper(density) ? convert(Distribution, density) : density
 
-# The factors of a product, nested or linearised, in order
+# The factors of a product, nested, in order. A linearised product, the messages of many edges of
+# one type, stays one factor: its type does not say how many it holds, so the projection of a
+# variable with N such messages is compiled once for every N.
 factors(density::ProductOf) = (factors(BayesBase.getleft(density))..., factors(BayesBase.getright(density))...)
-factors(density::LinearizedProductOf) = foldl((acc, part) -> (acc..., factors(part)...), view(density.vector, 1:min(density.length, length(density.vector))); init = ())
 factors(density) = (density,)
+
+# A factor as it tells its dimension and mean: a linearised product by its first member
+representative(part::LinearizedProductOf) = first(part.vector)
+representative(part) = part
+
+# The first member of the factors, linearised products opened, for which `predicate` holds, or
+# `nothing`
+function find_member(predicate, parts)
+    for part in parts, member in members(part)
+        predicate(member) && return member
+    end
+    return nothing
+end
+members(part::LinearizedProductOf) = view(part.vector, 1:min(part.length, length(part.vector)))
+members(part) = (part,)
 
 # A product with a point mass is that point mass; its normaliser is the other factors at the point
 function point_mass_form(density, parts, point)
     x = mean(point)
-    logZ = sum(part -> part isa PointMass ? 0.0 : logpdf(part, x), parts)
+    logZ = sum(part -> sum(member -> member isa PointMass ? 0.0 : logpdf(member, x), members(part)), parts)
     return (; distribution = point, logZ, mode = x, converged = true, iterations = 0, method = :point_mass)
 end
 
@@ -153,7 +179,7 @@ unprojected(density, previous) = (; distribution = density, logZ = nothing, mode
 function start_point(logp, domain, parts, previous)
     candidates = Any[]
     isnothing(previous) || push!(candidates, previous)
-    for part in parts
+    for part in map(representative, parts)
         m = part isa Distribution ? factor_mean(part) : pushed_mean(part)
         isnothing(m) || push!(candidates, m)
     end
@@ -171,7 +197,7 @@ end
 # 0 for a number, the length for a vector, `nothing` when no factor tells
 function product_dimension(parts, previous)
     isnothing(previous) || return previous isa Real ? 0 : length(previous)
-    for part in parts
+    for part in map(representative, parts)
         part isa Distribution{Univariate} && return 0
         part isa Distribution{Multivariate} && return length(part)
         m = pushed_mean(part)

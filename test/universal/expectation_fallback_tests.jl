@@ -130,3 +130,32 @@ end
     # Without an expectation backend it says where one is given.
     @test_throws "expectation" N.message(N.Toy, Target(:a), RuleArgs(q = (out = PointMass(2.0), b = PointMass(0.5))); ctx = RuleContext())
 end
+
+@testitem "ExpectationRuleFallback: belief propagation's message over a raw message" tags = [:universal] begin
+    using MessagePassingRulesBase, BayesBase, Distributions, ExponentialFamily
+    using MessagePassingRulesBase: RuleArgs, RuleContext, Target, NodeFunctionLogPdf, call_fallback
+    import DeltaMessagePassingRules: ExpectationRuleFallback, TiltedJointMessage, NaturalGradientForm
+    import ExpectationApproximations as EA
+
+    # `s2 ~ N(s1, 1)` whose message on `s2` is a raw likelihood with no mode, log σ(s2), left
+    # unprojected: the message towards `s1` is log ∫ N(s2; s1, 1) σ(s2) ds2, by Laplace's method
+    struct Shift{M}
+        m::M
+    end
+    BayesBase.logpdf(d::Shift, x) = -(x - d.m)^2 / 2 - log(2π) / 2
+    @define_factor_node(node = Shift, type = Stochastic, interfaces = [:out, :m])
+    raw = NodeFunctionLogPdf(x -> -log1p(exp(-x)))
+    ctx = RuleContext(expectation = EA.EADefault())
+    message = call_fallback(ExpectationRuleFallback(), Shift, Target(:m), nothing, ctx, RuleArgs(m = (out = raw,)))
+    @test message isa TiltedJointMessage
+    grid = range(-30, 30; length = 60_001)
+    for s1 in (-1.0, 0.0, 2.0)
+        exact = log(sum(exp.(-(grid .- s1) .^ 2 ./ 2 .- log(2π) / 2 .- log1p.(exp.(-grid)))) * step(grid))
+        @test logpdf(message, s1) ≈ exact atol = 2.0e-2
+    end
+    # a Gaussian message on `s2` keeps the expected log-density, as before
+    @test !(call_fallback(ExpectationRuleFallback(), Shift, Target(:m), nothing, ctx, RuleArgs(m = (out = NormalMeanVariance(0.0, 1.0),))) isa TiltedJointMessage)
+
+    # a natural-gradient form takes the average energy only
+    @test_throws ArgumentError ExpectationRuleFallback(NaturalGradientForm(); energy = :cavity)
+end

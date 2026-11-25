@@ -48,6 +48,12 @@ unprojected messages, which the sites project:
   expected log-density described above;
 - all other messages as described above.
 
+Without propagation as well, a message towards an input of a stochastic node whose other edges
+carry an unprojected raw message, such as a product of likelihoods with no mode that
+`LaplaceForm(nomode = :leave)` leaves as it is, is belief propagation's
+[`TiltedJointMessage`](@ref): no point set exists for an expectation over such a message, and the
+integral is taken by Laplace's method.
+
 The free-energy term of the node is set by `energy`:
 
 - `:cavity`, the term of expectation propagation, [`cavity_energy`](@ref). It needs the engine to
@@ -55,7 +61,7 @@ The free-energy term of the node is set by `energy`:
   `LaplaceForm` and a `MomentForm`.
 - `:average`, the average energy `-E_q[log f]` under the marginals, as without propagation. This
   is the default without a form and for a `NaturalGradientForm`, whose fixed point is a
-  stationary point of the free energy with these terms.
+  stationary point of the free energy with these terms, and the only term it takes.
 
 # Throws
 An `ArgumentError` when the context has no expectation backend. RxInfer's fallback schemes, such
@@ -69,6 +75,10 @@ struct ExpectationRuleFallback{P}
     energy::Symbol
     function ExpectationRuleFallback(propagation::P, energy::Symbol) where {P}
         energy ∈ (:cavity, :average) || throw(ArgumentError("`energy` is `:cavity` or `:average`, got `:$(energy)`"))
+        # natural-gradient sites are not projections against a cavity, which expectation
+        # propagation's term needs
+        propagation isa NaturalGradientForm && energy === :cavity &&
+            throw(ArgumentError("a `NaturalGradientForm` has no cavity energy: its free-energy term is the average energy, `energy = :average`"))
         return new{P}(propagation, energy)
     end
 end
@@ -119,6 +129,25 @@ function tilted_joint_message(node, target, ctx, args, propagation)
     return TiltedJointMessage(nodefunction(node), nothing, inputs, names, findfirst(isequal(name), names), expectation_backend(ctx))
 end
 
+# Without propagation, a stochastic node one of whose other edges carries an unprojected raw
+# message, such as a product of likelihoods with no mode that `LaplaceForm(nomode = :leave)`
+# leaves as it is: an expectation over that message needs a point set it does not have, so the
+# target's message is belief propagation's, the factor integrated against the other edges'
+# messages, a `TiltedJointMessage`, whose log-density takes the integral by Laplace's method.
+# Otherwise `nothing`.
+function raw_input_message(node, target, ctx, args)
+    (target isa Target && isempty(interface_groups(node))) || return nothing
+    messages = rule_inputs(node, args.m)
+    any(input -> !is_closed_form(last(input)), messages) || return nothing
+    marginals = rule_inputs(node, args.q)
+    all(input -> last(input) isa PointMass, marginals) || return nothing
+    inputs_by_name = Dict((messages..., marginals...))
+    names, name = Tuple(interfaces(node)), target_edge(target)
+    all(other -> other === name || haskey(inputs_by_name, other), names) || return nothing
+    inputs = map(other -> other === name ? nothing : inputs_by_name[other], names)
+    return TiltedJointMessage(nodefunction(node), nothing, inputs, names, findfirst(isequal(name), names), expectation_backend(ctx))
+end
+
 # The other edges' messages admit a joint site: one at least is a Gaussian, and the rest point masses
 joint_inputs_message(inputs) =
     any(input -> input isa GaussianMessage, inputs) && all(input -> isnothing(input) || input isa Union{PointMass, GaussianMessage}, inputs)
@@ -129,6 +158,8 @@ function stochastic_message(node, target, ctx, args, propagation = nothing)
     applicable(nodefunction, node) || return nothing
     joint = tilted_joint_message(node, target, ctx, args, propagation)
     isnothing(joint) || return joint
+    raw = raw_input_message(node, target, ctx, args)
+    isnothing(raw) || return raw
     inputs = (rule_inputs(node, args.m)..., rule_inputs(node, args.q)...)
     slots = interface_slots(node, map(first, inputs), target)
     isnothing(slots) && return nothing

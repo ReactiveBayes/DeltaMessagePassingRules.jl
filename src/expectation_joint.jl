@@ -39,10 +39,19 @@ function deterministic_joint(node, members, algorithm, ctx, args)
     isnothing(order) && return nothing
     incoming = map(key -> messages[key], order)
     outbound = messages[:out]
-    # a single input that is a vector: its marginal, by Laplace over its components
-    if length(incoming) == 1 && only(incoming) isa Distribution{Multivariate}
-        density = only(incoming)
-        return vector_laplace(u -> message_logdensity(outbound, f(u)) + logpdf(density, u), density)
+    # a single random input that is a vector, the others constants or data, such as `θ` in
+    # `dot(x, θ)`: its marginal, by Laplace over its components, with the constants plugged in,
+    # each a block of its own
+    free = Tuple(i for i in eachindex(incoming) if !(incoming[i] isa PointMass))
+    if length(free) == 1 && incoming[only(free)] isa Distribution{Multivariate}
+        k = only(free)
+        density = incoming[k]
+        point(u) = map(i -> i == k ? u : mean(incoming[i]), Tuple(eachindex(incoming)))
+        joint = vector_laplace(u -> message_logdensity(outbound, f(point(u)...)) + message_logdensity(density, u), density)
+        length(incoming) == 1 && return joint
+        vector, outcome = MessagePassingRulesBase.unwrap_outcome(joint)
+        blocks = Tuple(i == k ? (order[i],) => vector : (order[i],) => incoming[i] for i in eachindex(incoming))
+        return with_outcome(FactorizedCluster(Val(Tuple(map(first, blocks))), Tuple(map(last, blocks))), outcome)
     end
     is_cluster_input(incoming) || return nothing
     own(i) = isempty(interface_groups(node)) ?
@@ -112,7 +121,7 @@ end
 # Laplace for a vector, from its message's mean, in the message's domain
 function vector_laplace(logp, density)
     domain = something(EA.domain(density), EA.RealLine())
-    result = EA.laplace(logp, mean(density), domain)
+    result = EA.laplace(logp, input_start(density), domain)
     outcome = (method = :joint_laplace, converged = result.converged, iterations = result.iterations)
     return with_outcome(exponential_family_gaussian(result.distribution), outcome)
 end

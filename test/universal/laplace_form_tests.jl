@@ -76,6 +76,12 @@ end
     flat = ProductOf(NormalMeanVariance(0.0, 1.0), NodeFunctionLogPdf(x -> -3 * (1.0 - x)^2 / 2))
     @test mean(laplace_form(LaplaceForm(), nested).distribution) ≈ mean(laplace_form(LaplaceForm(), flat).distribution)
     @test var(laplace_form(LaplaceForm(), nested).distribution) ≈ 1 / 4
+    # a linearised product is one factor, whose type does not depend on its length, so that a
+    # variable's projection is compiled once for any number of messages
+    import DeltaMessagePassingRules: factors
+    product(n) = ProductOf(Beta(1.0, 1.0), LinearizedProductOf(fill(NodeFunctionLogPdf(x -> log(x)), n), n))
+    @test typeof(factors(product(30))) === typeof(factors(product(60)))
+    @test mean(laplace_form(LaplaceForm(), product(60)).distribution) ≈ mean(laplace_form(LaplaceForm(), ProductOf(Beta(1.0, 1.0), NodeFunctionLogPdf(x -> 60log(x)))).distribution)
 
     # A point mass among the factors is the product; its normaliser is the others at the point.
     result = laplace_form(LaplaceForm(), ProductOf(likelihood, PointMass(1.5)))

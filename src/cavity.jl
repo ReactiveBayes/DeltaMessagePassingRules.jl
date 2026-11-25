@@ -7,6 +7,12 @@
 # indefinite precision, FastCholesky's fallback (GMW81) silently inverts a different, positive
 # definite matrix, so moments computed from it describe another Gaussian.
 
+"""
+    GaussianMessage
+
+The Gaussians of ExponentialFamily, univariate and multivariate, in any parametrisation: the
+messages, cavities and sites of cavity propagation that are Gaussian, proper or not.
+"""
 const GaussianMessage = Union{UnivariateNormalDistributionsFamily, MultivariateNormalDistributionsFamily}
 
 """
@@ -26,7 +32,11 @@ projection is that of `form`: a [`LaplaceForm`](@ref) (Laplace propagation) or a
   parameters of the cavity, so an improper cavity is handled too. The projection starts at
   `previous`, the mode of the last site, or else at the mean of the cavity if it has one. The
   site is the projection minus the cavity in natural parameters, an
-  `(Mv)NormalWeightedMeanPrecision` that may be improper.
+  `(Mv)NormalWeightedMeanPrecision` that may be improper. A projection that does not converge
+  gives a site, with `converged = false` in the outcome, if it stopped at a maximum of the
+  tilted density, as when it runs out of iterations. If it stopped elsewhere, as for a tilted
+  density with no mode, `site` is `nothing` and the edge keeps its last site, or, before the edge
+  has one (`previous` is `nothing`), the message passes with the outcome `(; method = :waiting)`.
 
 `outcome` is `(; method, converged, iterations, logZ, mode)`. `method` is `:closed_form`,
 `:passed`, `:waiting`, `:laplace` or `:moment_matching`, and `logZ` is the log of the integral of the tilted
@@ -45,8 +55,40 @@ function site(form, message, cavity, previous = nothing)
     logp = x -> insupport(message, x) ? logpdf(message, x) + gaussian_logkernel(ξ, W, x) : -Inf
     x0 = something(previous, kernel_start(ξ, W))
     result = cavity_projection(form, logp, x0)
+    usable_projection(result, logp) || return failed_site(message, result, previous)
     ξq, Wq = natural_parameters(result.distribution)
     return (; site = weighted_mean_precision(ξq - ξ, Wq - W), outcome = (; result.method, result.converged, result.iterations, result.logZ, result.mode))
+end
+
+# Whether a projection gives a site. One that converged does; one that did not still does where
+# it stopped at a maximum of the tilted density, as when it ran out of iterations, and the site
+# then has `converged = false`. One that stopped elsewhere, as for a tilted density with no mode,
+# whose last iterate is far out, does not.
+function usable_projection(result, logp)
+    result.converged && return true
+    x = result.mode
+    (isnothing(x) || !all(isfinite, x)) && return false
+    all(isfinite, mean(result.distribution)) || return false
+    return at_maximum(logp, x)
+end
+
+function at_maximum(logp, x)
+    H = try
+        x isa Real ? ForwardDiff.derivative(y -> ForwardDiff.derivative(logp, y), x) : ForwardDiff.hessian(logp, x)
+    catch error
+        error isa Union{DomainError, ArgumentError, MethodError} || rethrow()
+        return false
+    end
+    all(isfinite, H) || return false
+    return x isa Real ? H < 0 : isposdef(Symmetric(-H))
+end
+
+# No site from a projection: the edge keeps its last site (`nothing`), and the projection its last
+# mode as its next start; before the edge has one, the message passes, as while it waits for a
+# cavity
+function failed_site(message, result, previous)
+    isnothing(previous) && return (; site = message, outcome = (; method = :waiting, converged = false, result.iterations))
+    return (; site = nothing, outcome = (; result.method, converged = false, result.iterations, logZ = nothing, mode = previous))
 end
 
 # While the raw messages of the other edges pass, before any of them has a site, the cavity is
@@ -114,20 +156,19 @@ BayesBase.logpdf(message::PushforwardMessage, z) = log_density_function(message)
 # Gaussian
 function log_density_function(message::PushforwardMessage)
     inputs = message.inputs
-    free = Tuple(i for i in eachindex(inputs) if !(inputs[i] isa PointMass))
-    if length(free) == 1 && inputs[only(free)] isa ContinuousUnivariateDistribution && is_proper_message(inputs[only(free)])
-        input = inputs[only(free)]
-        f = x -> message.f(map(i -> i in free ? x : mean(inputs[i]), Tuple(eachindex(inputs)))...)
-        domain = something(EA.domain(input), EA.RealLine())
-        g = u -> f(EA.forward(domain, u))
-        u0, s = unconstrained_location_scale(input, domain)
-        if is_monotone(g, u0, s)
-            return function (z)
-                u = invert_monotone(g, z, u0, s)
-                isnothing(u) && return -Inf
-                x = EA.forward(domain, u)
-                return logpdf(input, x) - log(abs(ForwardDiff.derivative(f, x)))
+    monotone = monotone_pushforward(message)
+    if !isnothing(monotone)
+        (; input, f, domain, g, u0, s) = monotone
+        return function (z)
+            u = invert_monotone(g, plain_value(z), u0, s)
+            isnothing(u) && return -Inf
+            # bisection does not carry derivatives: two Newton steps from its root do, to the
+            # third order, for the projections that differentiate this density
+            for _ in 1:2
+                u = u + (z - g(u)) / ForwardDiff.derivative(g, u)
             end
+            x = EA.forward(domain, u)
+            return logpdf(input, x) - log(abs(ForwardDiff.derivative(f, x)))
         end
     end
     all(is_proper_message, inputs) || return z -> NaN
@@ -137,6 +178,39 @@ function log_density_function(message::PushforwardMessage)
     return z -> logpdf(gaussian, z)
 end
 
+# One random input that is a proper distribution over numbers, through a function monotone over
+# it: the input, the function of it, its domain, the function of its unconstrained coordinate, and
+# where that lies; `nothing` otherwise
+function monotone_pushforward(message::PushforwardMessage)
+    inputs = message.inputs
+    free = Tuple(i for i in eachindex(inputs) if !(inputs[i] isa PointMass))
+    (length(free) == 1 && inputs[only(free)] isa ContinuousUnivariateDistribution && is_proper_message(inputs[only(free)])) || return nothing
+    input = inputs[only(free)]
+    f = x -> message.f(map(i -> i in free ? x : mean(inputs[i]), Tuple(eachindex(inputs)))...)
+    domain = something(EA.domain(input), EA.RealLine())
+    g = u -> f(EA.forward(domain, u))
+    u0, s = unconstrained_location_scale(input, domain)
+    is_monotone(g, u0, s) || return nothing
+    return (; input, f, domain, g, u0, s)
+end
+
+# The domain of a pushforward through a monotone function: the image of its input's support, as
+# `exp` maps the real line onto the positive numbers, so that the product it is a factor of is
+# projected there; `nothing` where it is not known
+function EA.domain(message::PushforwardMessage)
+    monotone = monotone_pushforward(message)
+    isnothing(monotone) && return nothing
+    ends = try
+        map(monotone.f, (minimum(monotone.input), maximum(monotone.input)))
+    catch error
+        error isa Union{MethodError, DomainError, ArgumentError} || rethrow()
+        return nothing
+    end
+    lower, upper = minmax(ends...)
+    (ends[1] isa Real && !isnan(lower) && !isnan(upper) && lower < upper) || return nothing
+    return EA.interval(float(lower), float(upper))
+end
+
 # Where an input lies in the unconstrained coordinate of its domain: its median, and half the
 # distance between its 16% and 84% quantiles, a Gaussian's standard deviation
 function unconstrained_location_scale(input, domain)
@@ -144,6 +218,10 @@ function unconstrained_location_scale(input, domain)
     u(p) = EA.inverse(domain, quantile(input, p))
     return (u(0.5), (u(0.8413447460685429) - u(0.15865525393145707)) / 2)
 end
+
+# A number without its dual parts
+plain_value(z::ForwardDiff.Dual) = plain_value(ForwardDiff.value(z))
+plain_value(z) = z
 
 # Whether `g` maps numbers to numbers with a derivative of one sign over `m ± 8s`, nonzero over
 # `m ± 2s`: a function that saturates, such as `tanh`, has a derivative that underflows to zero
@@ -196,7 +274,11 @@ function site(form, message::PushforwardMessage, cavity, previous = nothing)
     logp = v -> sum(k -> message_logdensity(inputs[free[k]], unpack(v, layout, k)), eachindex(free)) + logc(message.f(point(v)...))
     x0 = something(previous, pack(map(i -> input_start(inputs[i]), free)))
     result = pushforward_projection(form, message.f, point, logp, x0)
+    # Laplace's linearisation at an iterate that is not a mode; moment matching keeps its points
+    # on a broad Gaussian instead, and is used unless its moments are not a Gaussian's
+    form isa LaplaceForm && !usable_projection(result, logp) && return failed_site(message, result, previous)
     ξq, Wq = natural_parameters(result.distribution)
+    (all(isfinite, ξq) && all(isfinite, Wq)) || return failed_site(message, result, previous)
     ξc, Wc = ismissing(cavity) ? (zero(ξq), zero(Wq)) : weightedmean_precision(cavity)
     return (; site = weighted_mean_precision(ξq - ξc, Wq - Wc), outcome = (; result.method, result.converged, result.iterations, result.logZ, result.mode))
 end
@@ -254,10 +336,11 @@ function BayesBase.logpdf(message::TiltedJointMessage, x)
     free = joint_layout(message)
     densities = map(i -> message.inputs[i], free)
     logf = others -> joint_logfactor(message, joint_values(message, x, others, free))
-    if all(is_proper_message, densities)
+    if all(density -> is_closed_form(density) && is_proper_message(density), densities)
         return first(EA.tilted_mean_cov(message.backend, logf, FactorizedJoint(densities)))
     end
-    # an improper message among them: the integral of the tilted density by Laplace's method
+    # an improper or a raw message among them, which no backend has points for: the integral of
+    # the tilted density by Laplace's method
     layout = map(value_dimension, densities)
     logp = v -> (others = map(j -> unpack(v, layout, j), eachindex(free)); logf(others) + sum(j -> message_logdensity(densities[j], others[j]), eachindex(free)))
     return EA.laplace(logp, pack(map(input_start, densities))).logZ
@@ -281,6 +364,7 @@ function site(form, message::TiltedJointMessage, cavity, previous = nothing)
     start = pack((kernel_start(ξ, W), map(input_start, densities)...))
     x0 = previous isa AbstractVector && length(previous) == length(start) ? previous : start
     result = cavity_projection(form, logp, x0)
+    usable_projection(result, logp) || return failed_site(message, result, previous)
     # the target's block of the joint Gaussian, its marginal
     block = layout[1] == 0 ? (1:1) : (1:layout[1])
     m, V = mean(result.distribution)[block], cov(result.distribution)[block, block]
@@ -329,6 +413,16 @@ message_logdensity_kernel(c, z) = ((ξ, W) = weightedmean_precision(c); gaussian
 # Where the inputs' tilted density starts: each input's mean where its precision solves
 input_start(input::GaussianMessage) = ((ξ, W) = weightedmean_precision(input); kernel_start(ξ, W))
 input_start(input) = mean(input)
+# a raw message, which has no mean: the mean of a factor that has one, or the middle of its domain
+function input_start(input::RawDensity)
+    for part in map(representative, factors(input))
+        m = part isa Distribution ? factor_mean(part) : pushed_mean(part)
+        isnothing(m) || return m
+    end
+    domain = something(EA.domain(input), EA.RealLine())
+    dimension = value_dimension(input)
+    return EA.forward(domain, dimension == 0 ? 0.0 : zeros(dimension))
+end
 
 # The moments of f(x) under the tilted density of the inputs: on its Laplace approximation by
 # quadrature, weighted by the density against it, as `moment_matching` places its points
@@ -378,6 +472,16 @@ function cavity_projection(form::MomentForm, logp, x0)
     result = EA.moment_matching(logp, x0; backend = form.backend, tol = form.tol, maxiters = form.maxiters)
     return (; result.distribution, result.logZ, mode = result.mean, result.converged, result.iterations, method = :moment_matching)
 end
+# in the unconstrained coordinates of `domain`, with its Jacobian; on the real line, as above
+cavity_projection(form, logp, x0, ::Nothing) = cavity_projection(form, logp, x0)
+function cavity_projection(form::LaplaceForm, logp, x0, domain::EA.Domain)
+    result = EA.laplace(logp, x0, domain; tol = form.tol, maxiters = form.maxiters)
+    return (; result.distribution, result.logZ, result.mode, result.converged, result.iterations, method = :laplace)
+end
+function cavity_projection(form::MomentForm, logp, x0, domain::EA.Domain)
+    result = EA.moment_matching(logp, x0, domain; backend = form.backend, tol = form.tol, maxiters = form.maxiters)
+    return (; result.distribution, result.logZ, mode = result.mean, result.converged, result.iterations, method = :moment_matching)
+end
 
 # `ξᵀx - xᵀWx/2`, a Gaussian's log-density up to its normaliser, defined for any symmetric `W`
 gaussian_logkernel(ξ::Real, w::Real, x::Real) = ξ * x - w * x^2 / 2
@@ -398,6 +502,13 @@ end
 natural_parameters(q::Normal) = (mean(q) / var(q), inv(var(q)))
 natural_parameters(q::MvNormal) = (W = inv(Symmetric(cov(q))); (W * mean(q), Matrix(W)))
 
+"""
+    weighted_mean_precision(ξ, W)
+
+The Gaussian with weighted mean `ξ` and precision `W`, a `NormalWeightedMeanPrecision` for numbers
+and an `MvNormalWeightedMeanPrecision`, with `W` symmetrised, for a vector and a matrix. `W` need
+not be positive definite: a site or a cavity may be improper.
+"""
 weighted_mean_precision(ξ::Real, w::Real) = NormalWeightedMeanPrecision(ξ, w)
 weighted_mean_precision(ξ::AbstractVector, W::AbstractMatrix) = MvNormalWeightedMeanPrecision(ξ, (W + W') / 2)
 
@@ -459,7 +570,8 @@ function cavity_energy(form, node, ctx, args)
     value(v, name) = name in free ? unpack(v, layout, findfirst(isequal(name), free)) : mean(messages[name])
     logp = v -> f(; map(name -> name => value(v, name), names)...) + sum(i -> message_logdensity(messages[free[i]], unpack(v, layout, i)), eachindex(free))
     x0 = pack(map(name -> mean(marginals[name]), free))
-    result = cavity_projection(form, logp, x0)
+    domain = energy_domain(map(name -> (marginals[name], messages[name]), free), layout)
+    result = cavity_projection(form, logp, x0, domain)
     cross = sum(name -> expected_logdensity(ctx, marginals[name], messages[name]), free)
     return with_outcome(-result.logZ + cross, (; result.method, result.converged, result.iterations))
 end
@@ -481,13 +593,27 @@ function deterministic_cavity_energy(form, node, ctx, args)
     value(v, key) = key in free ? unpack(v, layout, findfirst(isequal(key), free)) : mean(messages[key])
     logp = v -> message_logdensity(messages[:out], f(map(key -> value(v, key), order)...)) + sum(i -> message_logdensity(messages[free[i]], unpack(v, layout, i)), eachindex(free))
     x0 = pack(map(key -> mean(marginals[key]), free))
-    result = cavity_projection(form, logp, x0)
+    domain = energy_domain(map(key -> (marginals[key], messages[key]), free), layout)
+    result = cavity_projection(form, logp, x0, domain)
     cross = expected_logdensity(ctx, marginals[:out], messages[:out]) + sum(key -> expected_logdensity(ctx, marginals[key], messages[key]), free)
     return with_outcome(-result.logZ + cross, (; result.method, result.converged, result.iterations))
 end
 
-# 0 for a number, the length for a vector
+# The domain of the free variables of a cavity energy, packed as one vector: each variable's own,
+# read from its marginal or else its message, so that the integral is taken in the unconstrained
+# coordinates of a positive or bounded variable, with the Jacobian, as its message's projection is,
+# and never evaluates the node outside its support; `nothing` on the real line. A vector variable
+# is on the real line.
+function energy_domain(densities, layout)
+    domains = map(density -> something(EA.domain(density[1]), EA.domain(density[2]), Some(EA.RealLine())), densities)
+    all(domain -> domain isa EA.RealLine, domains) && return nothing
+    any(i -> layout[i] != 0 && !(domains[i] isa EA.RealLine), eachindex(layout)) && return nothing
+    return EA.Componentwise(Tuple(Iterators.flatten(map((domain, d) -> d == 0 ? (domain,) : ntuple(_ -> EA.RealLine(), d), domains, layout))))
+end
+
+# 0 for a number, the length for a vector; a raw message, a number unless a factor tells otherwise
 value_dimension(density::Distribution{Univariate}) = 0
+value_dimension(density::RawDensity) = something(product_dimension(factors(density), nothing), 0)
 value_dimension(density) = length(density)
 
 # The values of several inputs, numbers and vectors, as one vector, and back

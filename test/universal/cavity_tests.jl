@@ -97,6 +97,27 @@ end
     @test site(LaplaceForm(), raw, ProductOf(Gamma(2.0, 1.0), NodeFunctionLogPdf(x -> -x))).outcome.method === :passed
 end
 
+@testitem "site: a tilted density with no mode gives no site" tags = [:universal] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily
+    using MessagePassingRulesBase: NodeFunctionLogPdf
+    import DeltaMessagePassingRules: LaplaceForm, MomentForm, site
+    # `5x` against the improper cavity `x²/2`: the tilted density grows without bound, and its last
+    # iterate is far out, so the edge keeps its last site, `nothing`, and its last mode, whatever
+    # `nomode` says; before the edge has a site, the message passes
+    raw = NodeFunctionLogPdf(x -> 5x)
+    cavity = NormalWeightedMeanPrecision(0.0, -1.0)
+    for form in (LaplaceForm(), LaplaceForm(nomode = :leave), MomentForm(), MomentForm(nomode = :leave))
+        result = site(form, raw, cavity, 0.3)
+        @test result.site === nothing
+        @test result.outcome.converged === false && result.outcome.mode === 0.3
+        first = site(form, raw, cavity)
+        @test first.site === raw && first.outcome.method === :waiting
+    end
+    # a projection that runs out of iterations at a maximum still gives its site, not converged
+    capped = site(LaplaceForm(maxiters = 1), NodeFunctionLogPdf(x -> -(x - 3)^4), NormalMeanVariance(0.0, 1.0))
+    @test capped.site isa NormalWeightedMeanPrecision && capped.outcome.converged === false
+end
+
 @testitem "site: against an improper cavity, in natural parameters" tags = [:universal] begin
     using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily, LinearAlgebra
     using MessagePassingRulesBase: NodeFunctionLogPdf
@@ -135,6 +156,45 @@ end
     for x in (-0.5, 0.2, 1.0)
         z = f(x)
         @test logpdf(message, x) ≈ 0.3 * z[1] + 0.1 * z[2] - (z[1]^2 - 0.5 * z[2]^2) / 2
+    end
+end
+
+@testitem "cavity_energy: in the unconstrained coordinates of a constrained variable" tags = [:universal] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily, MessagePassingRulesBase
+    using MessagePassingRulesBase: RuleArgs, RuleContext, unwrap_outcome
+    using SpecialFunctions: loggamma, logbeta
+    import DeltaMessagePassingRules: LaplaceForm, MomentForm, cavity_energy
+    import ExpectationApproximations as EA
+
+    # A Gaussian observation with an unknown precision τ, whose cavity is a Gamma, and a Bernoulli
+    # observation of p, whose cavity is a Beta: the integrals are taken in log τ and logit p, where
+    # the node is never evaluated outside its support, and equal the exact ones
+    struct PrecisionObservation{T}
+        τ::T
+    end
+    BayesBase.logpdf(d::PrecisionObservation, y) = (log(d.τ) - log(2π) - d.τ * y^2) / 2
+    @define_factor_node(node = PrecisionObservation, type = Stochastic, interfaces = [:out, :τ])
+    struct CoinObservation{P}
+        p::P
+    end
+    BayesBase.logpdf(d::CoinObservation, y) = y * log(d.p) + (1 - y) * log(1 - d.p)
+    @define_factor_node(node = CoinObservation, type = Stochastic, interfaces = [:out, :p])
+
+    ctx = RuleContext(expectation = EA.EADefault())
+    y = 1.3
+    cavity, q = Gamma(2.0, 1.0), Gamma(2.5, 1 / (1 + y^2 / 2))
+    logZ = loggamma(2.5) - 2.5 * log(1 + y^2 / 2) - log(2π) / 2
+    args = RuleArgs(m = (out = PointMass(y), τ = cavity), q = (out = PointMass(y), τ = q))
+    expected = -logZ + BayesBase.expectation(EA.EADefault(), τ -> logpdf(cavity, τ), q)
+    coin, coin_q = Beta(2.0, 3.0), Beta(3.0, 3.0)
+    coin_args = RuleArgs(m = (out = PointMass(1), p = coin), q = (out = PointMass(1), p = coin_q))
+    coin_expected = -(logbeta(3.0, 3.0) - logbeta(2.0, 3.0)) + BayesBase.expectation(EA.EADefault(), p -> logpdf(coin, p), coin_q)
+    for (form, rtol) in ((MomentForm(), 1.0e-4), (LaplaceForm(), 5.0e-2))
+        F, outcome = unwrap_outcome(cavity_energy(form, PrecisionObservation, ctx, args))
+        @test outcome.converged
+        @test F ≈ expected rtol = rtol
+        G, _ = unwrap_outcome(cavity_energy(form, CoinObservation, ctx, coin_args))
+        @test G ≈ coin_expected rtol = rtol
     end
 end
 
@@ -189,6 +249,32 @@ end
     cross(q, c) = ((ξ, w) = weightedmean_precision(c); ξ * mean(q) - w * (var(q) + mean(q)^2) / 2)
     F, _ = unwrap_outcome(cavity_energy(MomentForm(), DeltaFn{typeof(double)}, ctx, args))
     @test F ≈ -integral + cross(q_out, c_out) + cross(q_in, c_in) rtol = 1.0e-8
+end
+
+@testitem "PushforwardMessage: the domain of its image, and derivatives through its inverse" tags = [:universal] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily, ForwardDiff
+    import DeltaMessagePassingRules: PushforwardMessage, LaplaceForm, laplace_form
+    import ExpectationApproximations as EA
+    # a normal through `exp`, a log-normal on the positive numbers, whose density is computed by
+    # inverting `exp` by bisection: its derivatives are the log-normal's
+    message = PushforwardMessage(exp, (NormalMeanVariance(0.3, 0.5),))
+    @test EA.domain(message) == EA.Positive()
+    reference = LogNormal(0.3, sqrt(0.5))
+    for z in (0.4, 1.3, 4.0)
+        @test logpdf(message, z) ≈ logpdf(reference, z)
+        @test ForwardDiff.derivative(z -> logpdf(message, z), z) ≈ ForwardDiff.derivative(z -> logpdf(reference, z), z)
+        @test ForwardDiff.derivative(z -> ForwardDiff.derivative(z -> logpdf(message, z), z), z) ≈
+            ForwardDiff.derivative(z -> ForwardDiff.derivative(z -> logpdf(reference, z), z), z) rtol = 1.0e-6
+    end
+    # so a Gamma times it is projected on the positive numbers, from either side
+    for product in (ProductOf(message, Gamma(11.0, 0.25)), ProductOf(Gamma(11.0, 0.25), message))
+        result = laplace_form(LaplaceForm(), product)
+        @test result.converged && result.distribution isa EA.TransformedGaussian
+        @test result.mode ≈ laplace_form(LaplaceForm(), ProductOf(reference, Gamma(11.0, 0.25))).mode rtol = 1.0e-8
+    end
+    # a function that is not monotone over its input, or several inputs: not known
+    @test isnothing(EA.domain(PushforwardMessage(abs2, (NormalMeanVariance(0.0, 1.0),))))
+    @test isnothing(EA.domain(PushforwardMessage(+, (NormalMeanVariance(0.0, 1.0), NormalMeanVariance(0.0, 1.0)))))
 end
 
 @testitem "site: a pushforward against its output's cavity" tags = [:universal] begin
