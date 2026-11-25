@@ -36,8 +36,9 @@ cavity, it is the Gaussian of conjugate-computation variational inference.
 - `tol`: a site has `converged` when `‖η⋆ - η‖ ≤ tol (1 + ‖η‖)`;
 - `backend`: the expectation backend for the targets, any backend of ExpectationApproximations
   that prepares a point set for the families of the sites. The default, `nothing`, uses the rules
-  of [`natural_gradient_target`](@ref): Gauss–Hermite points for a Gaussian, and Gauss–Legendre
-  points in the unconstrained coordinate of the domain for other families.
+  of [`natural_gradient_target`](@ref): Gauss–Hermite points for a Gaussian, and
+  ExpectationApproximations' `UnconstrainedLegendre`, Gauss–Legendre points in the unconstrained
+  coordinate of the domain, for other families.
 """
 struct NaturalGradientForm{T <: Real, B}
     alpha::T
@@ -65,33 +66,23 @@ Base.show(io::IO, form::NaturalGradientForm) =
     print(io, "NaturalGradientForm(alpha = ", form.alpha, ", beta = ", form.beta, ", max_step = ", form.max_step, ", tol = ", form.tol, ")")
 
 # The points of a target's expectations over `q`: the backend's, or by default `GaussHermite(16)`
-# for a Gaussian, `16`ᵈ points, and for any other family Gauss–Legendre points in the
-# unconstrained coordinate of its domain, `log x` for a Gamma and `logit x` for a Beta, between the
-# quantiles 1e-15 and 1 - 1e-15. The sufficient statistics of a Gamma and a Beta hold `log x`,
-# whose expectations Gauss–Laguerre and Gauss–Jacobi rules, exact for polynomials, approach only as
-# a power of their points, set by the shape: at a Gamma's shape 0.7, 256 points are 2% off in
-# `E[log x]`. In the unconstrained coordinate the density is smooth and the rule converges
-# geometrically: 128 points are exact to the precision of floats for shapes above 1.
+# for a Gaussian, `16`ᵈ points, and for any other family ExpectationApproximations'
+# `UnconstrainedLegendre`, Gauss–Legendre panels in the unconstrained coordinate of its domain,
+# `log x` for a Gamma and `logit x` for a Beta, placed around the mode of the density there. The
+# sufficient statistics of a Gamma and a Beta hold `log x`, whose expectations Gauss–Laguerre and
+# Gauss–Jacobi rules, exact for polynomials, approach only as a power of their points, set by the
+# shape: at a Gamma's shape 0.7, 256 points are 2% off in `E[log x]`. In the unconstrained
+# coordinate the density is smooth and the rule is accurate to about 1e-12 for shapes and Beta
+# parameters from 0.05, including a Beta's second parameter below 1, whose upper quantiles round
+# to 1.
 const TARGET_GAUSS_HERMITE = EA.GaussHermite(16)
-const TARGET_LEGENDRE_POINTS = 128
-const TARGET_LEGENDRE = EA.gausslegendre(TARGET_LEGENDRE_POINTS)
+const TARGET_UNCONSTRAINED = EA.UnconstrainedLegendre()
 
 prepare_target(backend, q) = prepare_expectation(backend, q)
 prepare_target(::Nothing, q) = prepare_expectation(EA.EADefault(), q)
 prepare_target(::Nothing, q::GaussianMessage) = prepare_expectation(TARGET_GAUSS_HERMITE, q)
-function prepare_target(::Nothing, q::ContinuousUnivariateDistribution)
-    distribution = q isa GammaDistributionsFamily ? Gamma(shape(q), scale(q)) : q
-    domain = something(EA.domain(distribution), EA.RealLine())
-    bound(p) = clamp(EA.inverse(domain, quantile(distribution, p)), -700.0, 700.0)
-    lower, upper = bound(1.0e-15), bound(1 - 1.0e-15)
-    nodes, weights = TARGET_LEGENDRE
-    half, middle = (upper - lower) / 2, (upper + lower) / 2
-    u = middle .+ half .* nodes
-    points = map(v -> EA.forward(domain, v), u)
-    logw = log.(weights .* half) .+ map((x, v) -> logpdf(distribution, x) + EA.logjacobian(domain, v), points, u)
-    w = exp.(logw .- maximum(logw))
-    return BayesBase.ExpectationPointSet(points, w ./ sum(w))
-end
+prepare_target(::Nothing, q::ContinuousUnivariateDistribution) =
+    prepare_expectation(TARGET_UNCONSTRAINED, q isa GammaDistributionsFamily ? Gamma(shape(q), scale(q)) : q)
 
 """
     natural_gradient_target(message, q, backend) -> AbstractVector
@@ -130,9 +121,8 @@ closed form, `DeltaMessagePassingRules.is_closed_form(::MyMessage) = false`, so 
 site.
 
 When ClosedFormExpectations is loaded, the target has a closed form wherever the gradient
-`∇ E_q[ℓ] = E_q[ℓ ∇ log q]` has one there, for a message whose log-density is that of a
-distribution. See
-[`closed_form_integrand`](@ref).
+`∇ E_q[ℓ] = E_q[ℓ ∇ log q]` has one there, for a message whose log-density is an integrand of
+that package, such as a distribution's. See [`closed_form_integrand`](@ref).
 """
 function natural_gradient_target end
 
@@ -148,34 +138,39 @@ end
 """
     closed_form_integrand(message)
 
-Return a distribution `p` whose log-density equals that of `message` up to a constant, or
-`nothing`. When ClosedFormExpectations is loaded, the [`natural_gradient_target`](@ref) of such
-a message has a closed form wherever ClosedFormExpectations has one for the gradient
-`BayesBase.expectation_gradient(ClosedFormExpectation(), Base.Fix1(logpdf, p), q)`, at a univariate
-Gaussian or Gamma belief `q`. Otherwise the target is
-computed by quadrature. The constant does not change the target, so `p` need not be normalised.
+Return a callable integrand `ℓ` equal to the log-density of `message` up to a constant, of a type
+that ClosedFormExpectations may have closed forms for, or `nothing`. When ClosedFormExpectations
+is loaded, the [`natural_gradient_target`](@ref) of such a message has a closed form wherever
+ClosedFormExpectations has one for the gradient
+`BayesBase.expectation_gradient(ClosedFormExpectation(), ℓ, q)`, at a univariate Gaussian or
+Gamma belief `q`. Otherwise the target is computed by quadrature. The constant does not change
+the target.
 
-For a distribution, `p` is the distribution itself. With ClosedFormExpectations loaded, a Gamma
-message pulled back through `exp`, the message of a Poisson count towards its log rate, also has
-one: ClosedFormExpectations' `LogGamma`. A package with its own message type can add a method
-that returns such a distribution.
+For a distribution `p`, `ℓ` is `Base.Fix1(logpdf, p)`. With ClosedFormExpectations loaded, a Gamma
+message pulled back through `exp`, the message of a Poisson count towards its log rate,
+`(a - 1) z - b eᶻ`, also has one: ClosedFormExpectations' `LogGammaKernel(1 / b, a - 1)`, which
+is defined for any shape, a count of zero included. A package with its own message type can add a
+method that returns such an integrand. A method that returns a distribution is taken as its
+log-density.
 """
 closed_form_integrand(message) = nothing
-closed_form_integrand(message::Distribution) = message
+closed_form_integrand(message::Distribution) = Base.Fix1(logpdf, message)
 
 """
-    closed_form_target(p, q)
+    closed_form_target(ℓ, q)
 
-Return the natural-gradient target of the log-density of the distribution `p` at the belief `q`
-in closed form, in the parameters of [`natural_gradient_target`](@ref), or `nothing` if there is
-no closed form. The package extension for ClosedFormExpectations defines it from that package's
-closed form of `BayesBase.expectation_gradient`. Without the extension it returns `nothing`.
+Return the natural-gradient target of the integrand `ℓ`, from [`closed_form_integrand`](@ref), at
+the belief `q` in closed form, in the parameters of [`natural_gradient_target`](@ref), or `nothing`
+if there is no closed form. The package extension for ClosedFormExpectations defines it from that
+package's closed form of `BayesBase.expectation_gradient`. Without the extension it returns
+`nothing`.
 """
-closed_form_target(p, q) = nothing
+closed_form_target(ℓ, q) = nothing
 
 function closed_form_target_of(message, q)
-    p = closed_form_integrand(message)
-    return isnothing(p) ? nothing : closed_form_target(p, q)
+    ℓ = closed_form_integrand(message)
+    isnothing(ℓ) && return nothing
+    return closed_form_target(ℓ isa Distribution ? Base.Fix1(logpdf, ℓ) : ℓ, q)
 end
 
 # `x ↦ ℓ(x)`, once per message: a pushforward prepares its density
@@ -244,9 +239,16 @@ end
 flat_statistics(t::Tuple) = reduce(vcat, map(s -> s isa Number ? [float(s)] : vec(float.(collect(s))), t))
 flat_statistics(t) = flat_statistics((t,))
 
-# The family of a site: ExponentialFamily's tag, the natural parameters and the conditioner, of
-# a proper density or not; `nothing` for a density in no family that has sites, a discrete one,
-# whose messages are exact products, or a multivariate one that is not a Gaussian.
+"""
+    family_parameters(d) -> (tag, η, conditioner) or nothing
+
+The family of a site of natural-gradient propagation: ExponentialFamily's type tag, the natural
+parameters and the conditioner of `d`, a proper density or not. `nothing` for a density in no
+family that has sites: a discrete one, whose messages are exact products, or a multivariate one
+that is not a Gaussian. See [`family_site`](@ref).
+"""
+function family_parameters end
+
 function family_parameters(d::GaussianMessage)
     ξ, W = weightedmean_precision(d)
     ξ isa Real && return (NormalMeanVariance, [float(ξ), -float(W) / 2], nothing)
@@ -273,10 +275,17 @@ family_parameters(d) = nothing
 # The families of ExponentialFamilyDistribution that have sites: continuous univariate ones
 family_supported(tag) = tag <: ContinuousUnivariateDistribution
 
-# A site, or a marginal, from its natural parameters: in the public type of its family, unchecked,
-# so that a site may be improper. A Gaussian is in weighted-mean form and a Gamma by shape and rate,
-# whose products with any member of the family are closed; any other family is an
-# `ExponentialFamilyDistribution`.
+"""
+    family_site(tag, η, conditioner)
+
+A site, or a marginal, from the natural parameters `η` of the family `tag`, as
+[`family_parameters`](@ref) gives them, in the public type of its family and unchecked, so that a
+site may be improper. A Gaussian is in weighted-mean form and a Gamma by shape and rate, whose
+products with any member of the family are closed; any other family is an
+`ExponentialFamilyDistribution`.
+"""
+function family_site end
+
 family_site(::Type{NormalMeanVariance}, η, conditioner) = NormalWeightedMeanPrecision(η[1], -2 * η[2])
 function family_site(::Type{MvNormalMeanCovariance}, η, conditioner)
     k = gaussian_dimension(η)
@@ -358,9 +367,12 @@ univariate family.
 The outcome of a step is `(; method = :natural_gradient, converged, iterations, η, velocity)`.
 `converged` is true when `‖η⋆ - η‖ ≤ tol (1 + ‖η‖)` before the step, `iterations` is the number of
 steps taken on the edge, and `η` and `velocity` are the natural parameters and the velocity of
-the site after the step, to be passed as the next `previous`. If the target is not finite, the
-last site stays as it is (`site` is `nothing`), or the flat site is sent at the first step of an
-edge. If no site makes the marginal proper against the cavity, the last site stays.
+the site after the step, to be passed as the next `previous`. If the target is not finite, as
+where the message's log-density is not finite over the marginal, the last site stays as it is
+(`site` is `nothing`), or the flat site is sent at the first step of an edge; the outcome is then
+`(; method = :nonfinite, converged = false, iterations, η, velocity)`. If no site makes the
+marginal proper against the cavity, the last site stays, and the outcome holds its `η`; if no
+part of the step does, the site does not move, with a zero velocity and `converged = false`.
 """
 function site(form::NaturalGradientForm, message, cavity, previous = nothing)
     message isa PointMass && return (; site = message, outcome = (; method = :closed_form))
@@ -400,30 +412,35 @@ function previous_state(previous, ηc)
 end
 
 function natural_gradient_step(form::NaturalGradientForm, message, (tag, ηc, conditioner), previous)
-    η, v, n = previous_state(previous, ηc)
+    kept, v, n = previous_state(previous, ηc)
     proper(x) = family_isproper(tag, ηc .+ x, conditioner)
-    # the last site against a cavity that has moved: halved until the marginal is proper
-    shrunk = false
+    # the last site against a cavity that has moved: halved until the marginal is proper; if no
+    # halving makes it proper, the engine keeps the last site, and so does the outcome
+    η, shrunk = kept, false
     halvings = 0
     while !proper(η)
         halvings += 1
         if halvings > MAX_HALVINGS
-            return (; site = nothing, outcome = (; method = :natural_gradient, converged = false, iterations = n, η, velocity = v))
+            return (; site = nothing, outcome = (; method = :natural_gradient, converged = false, iterations = n, η = kept, velocity = zero(v)))
         end
         η, v, shrunk = η ./ 2, zero(v), true
     end
     # where the target is not finite, the site stays, or is the flat site at an edge's first step
-    unchanged = shrunk || n == 0 ? family_site(tag, η, conditioner) : nothing
+    # or after a halving; the outcome says so, `:nonfinite`
     target = natural_gradient_target(message, family_marginal(tag, ηc .+ η, conditioner), form.backend)
     if !all(isfinite, target)
-        return (; site = unchanged, outcome = (; method = :natural_gradient, converged = false, iterations = n, η, velocity = v))
+        changed = shrunk || n == 0
+        return (; site = changed ? family_site(tag, η, conditioner) : nothing, outcome = (; method = :nonfinite, converged = false, iterations = n, η = changed ? η : kept, velocity = zero(v)))
     end
     converged = norm(target .- η) <= form.tol * (1 + norm(η))
     step = clip_step(form.beta .* v .+ form.alpha .* (target .- η), form.max_step)
     halvings = 0
     while !proper(η .+ step)
         halvings += 1
-        halvings > MAX_HALVINGS && (step = zero(step); break)
+        if halvings > MAX_HALVINGS
+            # no part of the step keeps the marginal proper: the site stays where it is, unmoved
+            return (; site = family_site(tag, η, conditioner), outcome = (; method = :natural_gradient, converged = false, iterations = n + 1, η, velocity = zero(step)))
+        end
         step = step ./ 2
     end
     η = η .+ step

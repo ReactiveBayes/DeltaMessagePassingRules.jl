@@ -64,7 +64,7 @@ end
 @testitem "natural_gradient_target: any other family, against closed forms" tags = [:universal] setup = [NaturalGradientClosedForms] begin
     using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily
     using MessagePassingRulesBase: NodeFunctionLogPdf
-    import DeltaMessagePassingRules: natural_gradient_target, PushforwardMessage, family_target, log_density_function
+    import DeltaMessagePassingRules: natural_gradient_target, PushforwardMessage, family_target, log_density_function, site, NaturalGradientForm
     import ExpectationApproximations as EA
 
     # A Gamma belief and a log-normal message, as a distribution and as the pushforward of a
@@ -91,6 +91,18 @@ end
     @test natural_gradient_target(rate_only, GammaShapeRate(0.7, 2.0), nothing) ≈ [0.0, -2.0] atol = 1.0e-9
     # a log-density of the belief's family is its own target: a Beta's (a - 1, b - 1)
     @test natural_gradient_target(NodeFunctionLogPdf(x -> 3log(x) + 2log(1 - x)), Beta(2.0, 5.0), nothing) ≈ [3.0, 2.0] rtol = 1.0e-6
+    # also with a parameter below one, whose upper quantiles round to 1 in floating point, where the
+    # points used to be NaN and the site stayed flat
+    for belief in (Beta(2.0, 0.5), Beta(0.5, 0.5), Beta(0.3, 2.0))
+        @test natural_gradient_target(NodeFunctionLogPdf(x -> 3log(x) + 2log(1 - x)), belief, nothing) ≈ [3.0, 2.0] rtol = 1.0e-5
+        step = site(NaturalGradientForm(alpha = 1.0, beta = 0.0), NodeFunctionLogPdf(x -> 2log(x)), belief)
+        @test step.outcome.method === :natural_gradient
+        @test step.outcome.η ≈ [2.0, 0.0] atol = 1.0e-6
+    end
+    # and Gamma beliefs of small shapes, a rate's target in natural parameters (0, -2)
+    for a in (0.05, 0.1, 0.3)
+        @test natural_gradient_target(rate_only, GammaShapeRate(a, 2.0), nothing) ≈ [0.0, -2.0] atol = 1.0e-8
+    end
     # where the message's log-density underflows on a negligible mass, those points are left out:
     # tanh(x) is 1 in floating point beyond 19
     beta_of_tanh = NodeFunctionLogPdf(x -> 6log(tanh(x)) + 2log(1 - tanh(x)))
@@ -196,11 +208,16 @@ end
     # a last site that, against a cavity that has moved, gives an improper marginal is halved first
     moved = site(form, shrinking, GammaShapeRate(1.2, 1.0), halved.outcome)
     @test shape(prod(GenericProd(), GammaShapeRate(1.2, 1.0), moved.site)) > 0
-    # a target that is not finite leaves the site, or sends the flat one at a first step
+    # a cavity against which no halving of the last site gives a proper marginal: the engine keeps
+    # the last site, and the outcome keeps its parameters, for the next step to start from
+    stuck = site(form, shrinking, GammaShapeRate(-0.5, 1.0), halved.outcome)
+    @test stuck.site === nothing && stuck.outcome.η == halved.outcome.η && iszero(stuck.outcome.velocity) && !stuck.outcome.converged
+    # a target that is not finite leaves the site, or sends the flat one at a first step, and says so
     nowhere = NodeFunctionLogPdf(x -> NaN)
-    @test site(form, nowhere, cavity, jump.outcome).site === nothing
+    kept = site(form, nowhere, cavity, jump.outcome)
+    @test kept.site === nothing && kept.outcome.method === :nonfinite && kept.outcome.η == jump.outcome.η
     flat = site(form, nowhere, cavity)
-    @test collect(weightedmean_precision(flat.site)) == [0.0, 0.0] && !flat.outcome.converged
+    @test collect(weightedmean_precision(flat.site)) == [0.0, 0.0] && !flat.outcome.converged && flat.outcome.method === :nonfinite
 
     # a TiltedJointMessage, belief propagation's message `log ∫ f c`: here `log N(1 | a, 3)`,
     # quadratic, so that one undamped step reaches its site
@@ -235,16 +252,17 @@ end
 @testitem "natural_gradient_target: in closed form with ClosedFormExpectations" tags = [:universal] setup = [NaturalGradientClosedForms] begin
     using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily
     using MessagePassingRulesBase: NodeFunctionLogPdf
-    using ClosedFormExpectations: LogGamma
+    using ClosedFormExpectations: LogGammaKernel
     import DeltaMessagePassingRules: natural_gradient_target, closed_form_integrand, closed_form_target, PulledBack,
         gaussian_target, family_target, log_density_function, site, NaturalGradientForm
 
     # A Poisson count `y` through a log rate: the message on the rate, Gamma(y + 1, 1), pulled
-    # back through `exp`, is a `LogGamma`, also for `y = 0`, where it is not normalisable
+    # back through `exp`, is the kernel `LogGammaKernel(1, y)`, also for `y = 0`
     for y in (0, 1, 7), (m, v) in ((0.3, 0.5), (-1.0, 2.0))
         pulled = NodeFunctionLogPdf(PulledBack(exp, GammaShapeRate(y + 1.0, 1.0)))
         q = NormalMeanVariance(m, v)
-        @test closed_form_integrand(pulled) isa LogGamma
+        @test closed_form_integrand(pulled) isa LogGammaKernel
+        @test closed_form_integrand(pulled)(0.4) ≈ y * 0.4 - exp(0.4)
         ξ, Λ = reference_gaussian_target_of_gamma(y + 1.0, 1.0, q)
         closed = natural_gradient_target(pulled, q, nothing)
         @test closed ≈ [ξ, -Λ / 2] rtol = 1.0e-12
@@ -255,9 +273,11 @@ end
     for (m, v) in ((0.5, 0.4), (-1.0, 3.0)), (a, b) in ((3.0, 2.0), (0.8, 0.5))
         message, q = LogNormal(m, sqrt(v)), GammaShapeRate(a, b)
         as, bs = reference_gamma_target_of_lognormal(m, v, q)
-        @test closed_form_target(message, q) ≈ [as - 1, -bs] rtol = 1.0e-12
-        @test natural_gradient_target(message, q, nothing) == closed_form_target(message, q)
-        @test closed_form_target(message, q) ≈ family_target(log_density_function(message), q, nothing) rtol = 1.0e-8
+        ℓ = closed_form_integrand(message)
+        @test ℓ == Base.Fix1(logpdf, message)
+        @test closed_form_target(ℓ, q) ≈ [as - 1, -bs] rtol = 1.0e-12
+        @test natural_gradient_target(message, q, nothing) == closed_form_target(ℓ, q)
+        @test closed_form_target(ℓ, q) ≈ family_target(log_density_function(message), q, nothing) rtol = 1.0e-8
     end
 
     # A Laplace message, `-|x - μ| / θ`, at a normal belief, which the quadrature handles poorly at
@@ -268,11 +288,11 @@ end
     @test natural_gradient_target(Laplace(μ, θ), q, nothing) ≈ [ξ, -Λ / 2] rtol = 1.0e-12
 
     # Without a closed form, the quadrature: a Beta message, a closure, a multivariate belief
-    @test isnothing(closed_form_target(Beta(2.0, 3.0), NormalMeanVariance(0.3, 0.8)))
+    @test isnothing(closed_form_target(Base.Fix1(logpdf, Beta(2.0, 3.0)), NormalMeanVariance(0.3, 0.8)))
     @test isnothing(closed_form_integrand(NodeFunctionLogPdf(x -> -x^4)))
     @test natural_gradient_target(NodeFunctionLogPdf(x -> -x^4), NormalMeanVariance(0.3, 0.8), nothing) ≈
         gaussian_target(x -> -x^4, NormalMeanVariance(0.3, 0.8), nothing)
-    @test isnothing(closed_form_target(MvNormalMeanCovariance([0.0, 1.0], [1.0 0.0; 0.0 1.0]), MvNormalMeanCovariance([0.0, 0.0], [1.0 0.0; 0.0 1.0])))
+    @test isnothing(closed_form_target(Base.Fix1(logpdf, MvNormalMeanCovariance([0.0, 1.0], [1.0 0.0; 0.0 1.0])), MvNormalMeanCovariance([0.0, 0.0], [1.0 0.0; 0.0 1.0])))
 
     # A site's step goes to the closed form: from the flat site, an undamped step lands on the
     # target at the cavity, a Poisson count of 2's message through `exp`
