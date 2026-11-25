@@ -114,7 +114,7 @@ struct CVIProjection{S, OF, IFS, PD, SS} <: MessagePassingRulesApproximations.Ab
     in_prjparams::IFS
     proposal_distribution::PD
     sampling_strategy::SS
-    function CVIProjection(outsamples::S, out_prjparams::OF, in_prjparams::IFS, proposal_distribution::PD, sampling_strategy::SS) where {S, OF, IFS, PD, SS}
+    function CVIProjection{S, OF, IFS, PD, SS}(outsamples, out_prjparams, in_prjparams, proposal_distribution, sampling_strategy) where {S, OF, IFS, PD, SS}
         Base.depwarn(
             "`CVIProjection` is deprecated: natural-gradient propagation replaces it, RxInfer's `infer(...; fallback = NaturalGradientPropagation())`, which needs no method on the Delta node",
             :CVIProjection,
@@ -123,10 +123,20 @@ struct CVIProjection{S, OF, IFS, PD, SS} <: MessagePassingRulesApproximations.Ab
     end
 end
 
+# The constructors `Base.@kwdef` gave it before the deprecation: positional and keyword, with and
+# without the type parameters
+CVIProjection(outsamples::S, out_prjparams::OF, in_prjparams::IFS, proposal_distribution::PD, sampling_strategy::SS) where {S, OF, IFS, PD, SS} =
+    CVIProjection{S, OF, IFS, PD, SS}(outsamples, out_prjparams, in_prjparams, proposal_distribution, sampling_strategy)
+
 CVIProjection(;
     outsamples = 100, out_prjparams = nothing, in_prjparams = nothing,
     proposal_distribution = ProposalDistributionContainer{Any}(nothing), sampling_strategy = FullSampling(10),
 ) = CVIProjection(outsamples, out_prjparams, in_prjparams, proposal_distribution, sampling_strategy)
+
+CVIProjection{S, OF, IFS, PD, SS}(;
+    outsamples = 100, out_prjparams = nothing, in_prjparams = nothing,
+    proposal_distribution = ProposalDistributionContainer{Any}(nothing), sampling_strategy = FullSampling(10),
+) where {S, OF, IFS, PD, SS} = CVIProjection{S, OF, IFS, PD, SS}(outsamples, out_prjparams, in_prjparams, proposal_distribution, sampling_strategy)
 
 """
     get_kth_in_form(method::CVIProjection, k::Int)

@@ -206,6 +206,9 @@ DeltaMessagePassingRules.PushforwardMessage
 DeltaMessagePassingRules.TiltedJointMessage
 DeltaMessagePassingRules.same_message
 DeltaMessagePassingRules.same_density
+DeltaMessagePassingRules.is_closed_form
+DeltaMessagePassingRules.GaussianMessage
+DeltaMessagePassingRules.weighted_mean_precision
 ```
 
 ### Improper sites
@@ -336,25 +339,30 @@ variable's other sites. This family need not be Gaussian.
 
 The first step starts from the flat site, `η = 0`, so the marginal equals the cavity, which must
 be proper: a prior or an initial message, for example. A raw message that has no cavity yet
-waits. The family of a variable is the family that its first site takes, which is the prior's
+passes as it is and takes its first step once a cavity has formed. The family of a variable is the family that its first site takes, which is the prior's
 family when the prior's message arrives first.
 
 In a Gaussian family, the expectations of the target are computed with 16 Gauss–Hermite points
-per dimension. In other families they use 128 Gauss–Legendre points in the unconstrained
-coordinate of the domain, `log x` for a Gamma. The sufficient statistics of a Gamma include
-`log x`, and Gauss–Laguerre points, which are exact for polynomials, converge slowly on its
-expectation when the shape is small. `NaturalGradientForm(backend = …)` selects another backend.
+per dimension. In other families they use ExpectationApproximations' `UnconstrainedLegendre`,
+Gauss–Legendre panels in the unconstrained coordinate of the domain, `log x` for a Gamma and
+`logit x` for a Beta, placed around the mode of the density there. The sufficient statistics of a
+Gamma include `log x`, and Gauss–Laguerre points, which are exact for polynomials, converge slowly
+on its expectation when the shape is small. In the unconstrained coordinate the targets are
+accurate to about 1e-12 for Gamma shapes and Beta parameters from 0.05, a Beta with a parameter
+below 1 included. A target that is still not finite leaves the site where it is, with the
+outcome `:nonfinite`. `NaturalGradientForm(backend = …)` selects another backend.
 A package can add a closed form of the target with a method of
 [`natural_gradient_target`](@ref) for its message type and the family of `q`.
 
 When [ClosedFormExpectations](https://github.com/biaslab/ClosedFormExpectations.jl) is loaded,
 the target has a closed form wherever ClosedFormExpectations has one for the gradient
-`∇ E_q[log p] = E_q[log p(x) ∇ log q(x)]`, which it computes with
-`BayesBase.expectation_gradient(ClosedFormExpectation(), Base.Fix1(logpdf, p), q)`. This covers univariate Gaussian and Gamma beliefs, for
-a message whose log-density is that of a distribution `p` up to a constant. Examples are a
-log-normal or a Laplace message, and a Gamma message pulled back through `exp`, which is the
-message of a Poisson count towards its log rate. A package can map its own message type to such
-a distribution with a method of [`closed_form_integrand`](@ref).
+`∇ E_q[ℓ] = E_q[ℓ(x) ∇ log q(x)]` of the message's log-density `ℓ`, which it computes with
+`BayesBase.expectation_gradient(ClosedFormExpectation(), ℓ, q)`. This covers univariate Gaussian
+and Gamma beliefs. The integrand `ℓ` is `Base.Fix1(logpdf, p)` for a message that is a
+distribution `p`, such as a log-normal or a Laplace message, and ClosedFormExpectations'
+`LogGammaKernel` for a Gamma message pulled back through `exp`, which is the message of a Poisson
+count towards its log rate, `(a - 1) z - b eᶻ`. A package can map its own message type to such an
+integrand with a method of [`closed_form_integrand`](@ref).
 
 ### The free energy
 
@@ -385,6 +393,8 @@ NaturalGradientForm
 DeltaMessagePassingRules.natural_gradient_target
 DeltaMessagePassingRules.closed_form_integrand
 DeltaMessagePassingRules.closed_form_target
+DeltaMessagePassingRules.family_parameters
+DeltaMessagePassingRules.family_site
 ```
 
 ### References

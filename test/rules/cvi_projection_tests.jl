@@ -38,6 +38,10 @@ end
     # deprecated, in favour of natural-gradient propagation
     @test_deprecated r"NaturalGradientPropagation" CVIProjection()
     @test_deprecated CVIProjection(100, nothing, nothing, ProposalDistributionContainer{Any}(nothing), MeanBased())
+    # the constructors with the type parameters, positional and keyword, as `Base.@kwdef` gave them
+    T = CVIProjection{Int, Nothing, Nothing, ProposalDistributionContainer{Any}, MeanBased}
+    @test T(100, nothing, nothing, ProposalDistributionContainer{Any}(nothing), MeanBased()) isa T
+    @test T(sampling_strategy = MeanBased()).outsamples == 100
 
     form1, form2 = ProjectedTo(NormalMeanVariance), ProjectedTo(MvNormalMeanScalePrecision, 2)
     with_forms = CVIProjection(in_prjparams = (in_1 = form1, in_2 = form2))
