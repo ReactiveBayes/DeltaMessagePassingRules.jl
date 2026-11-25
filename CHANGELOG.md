@@ -108,10 +108,12 @@ documentation page "Universal inference" describes them.
   - `natural_gradient_target(message, q, backend)` computes `G(q)⁻¹ Cov_q[T, ℓ]` in
     ExponentialFamily's natural parameters of the family of `q`. For a Gaussian it uses Stein's
     lemma, with the values of the log-density only. For other families it uses the definition,
-    with ExponentialFamily's sufficient statistics and Fisher information, and by default
-    ExpectationApproximations' `UnconstrainedLegendre`, Gauss–Legendre panels in the
-    unconstrained coordinate of the domain, accurate for Gamma shapes and Beta parameters from
-    0.05, those below 1 included. Packages can add closed forms with methods for their message
+    with ExponentialFamily's sufficient statistics and Fisher information. By default a
+    univariate belief, a Gaussian included, uses ExpectationApproximations'
+    `UnconstrainedLegendre`, Gauss–Legendre panels in the unconstrained coordinate of the domain,
+    accurate for Gamma shapes and Beta parameters from 0.05, those below 1 included, and for a
+    logistic likelihood under a broad Gaussian belief; a multivariate Gaussian uses 16
+    Gauss–Hermite points per dimension. Packages can add closed forms with methods for their message
     types.
   - With ClosedFormExpectations 1.0 loaded (a package extension), the target has a closed form
     wherever ClosedFormExpectations has one for the gradient `BayesBase.expectation_gradient`, at a

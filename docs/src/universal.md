@@ -342,10 +342,13 @@ be proper: a prior or an initial message, for example. A raw message that has no
 passes as it is and takes its first step once a cavity has formed. The family of a variable is the family that its first site takes, which is the prior's
 family when the prior's message arrives first.
 
-In a Gaussian family, the expectations of the target are computed with 16 Gauss–Hermite points
-per dimension. In other families they use ExpectationApproximations' `UnconstrainedLegendre`,
-Gauss–Legendre panels in the unconstrained coordinate of the domain, `log x` for a Gamma and
-`logit x` for a Beta, placed around the mode of the density there. The sufficient statistics of a
+In a multivariate Gaussian family, the expectations of the target are computed with 16
+Gauss–Hermite points per dimension. For a univariate belief of any family they use
+ExpectationApproximations' `UnconstrainedLegendre`, Gauss–Legendre panels in the unconstrained
+coordinate of the domain, `x` for a Gaussian, `log x` for a Gamma and `logit x` for a Beta, placed
+around the mode of the density there. On a broad Gaussian belief the panels resolve a
+log-density that bends on a smaller scale, as a logistic likelihood's does at zero, where 16
+Gauss–Hermite points put the target's precision 2% off at a variance of 100. The sufficient statistics of a
 Gamma include `log x`, and Gauss–Laguerre points, which are exact for polynomials, converge slowly
 on its expectation when the shape is small. In the unconstrained coordinate the targets are
 accurate to about 1e-12 for Gamma shapes and Beta parameters from 0.05, a Beta with a parameter

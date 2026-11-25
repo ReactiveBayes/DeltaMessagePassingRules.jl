@@ -36,9 +36,9 @@ cavity, it is the Gaussian of conjugate-computation variational inference.
 - `tol`: a site has `converged` when `‖η⋆ - η‖ ≤ tol (1 + ‖η‖)`;
 - `backend`: the expectation backend for the targets, any backend of ExpectationApproximations
   that prepares a point set for the families of the sites. The default, `nothing`, uses the rules
-  of [`natural_gradient_target`](@ref): Gauss–Hermite points for a Gaussian, and
-  ExpectationApproximations' `UnconstrainedLegendre`, Gauss–Legendre points in the unconstrained
-  coordinate of the domain, for other families.
+  of [`natural_gradient_target`](@ref): Gauss–Hermite points for a multivariate Gaussian, and
+  ExpectationApproximations' `UnconstrainedLegendre`, Gauss–Legendre panels in the unconstrained
+  coordinate of the domain, for a univariate belief of any family.
 """
 struct NaturalGradientForm{T <: Real, B}
     alpha::T
@@ -66,9 +66,13 @@ Base.show(io::IO, form::NaturalGradientForm) =
     print(io, "NaturalGradientForm(alpha = ", form.alpha, ", beta = ", form.beta, ", max_step = ", form.max_step, ", tol = ", form.tol, ")")
 
 # The points of a target's expectations over `q`: the backend's, or by default `GaussHermite(16)`
-# for a Gaussian, `16`ᵈ points, and for any other family ExpectationApproximations'
+# for a multivariate Gaussian, `16`ᵈ points, and for any univariate family ExpectationApproximations'
 # `UnconstrainedLegendre`, Gauss–Legendre panels in the unconstrained coordinate of its domain,
-# `log x` for a Gamma and `logit x` for a Beta, placed around the mode of the density there. The
+# `x` for a Gaussian, `log x` for a Gamma and `logit x` for a Beta, placed around the mode of the
+# density there. On a broad Gaussian belief a message's log-density can bend sharply on a scale
+# far below the belief's, as a logistic likelihood's at zero under N(0, 100), where 16
+# Gauss–Hermite points put the target's precision 2% off and 32 points 0.4%; the panels are
+# accurate to about 1e-12 there, with about 200 points. The
 # sufficient statistics of a Gamma and a Beta hold `log x`, whose expectations Gauss–Laguerre and
 # Gauss–Jacobi rules, exact for polynomials, approach only as a power of their points, set by the
 # shape: at a Gamma's shape 0.7, 256 points are 2% off in `E[log x]`. In the unconstrained
@@ -81,6 +85,8 @@ const TARGET_UNCONSTRAINED = EA.UnconstrainedLegendre()
 prepare_target(backend, q) = prepare_expectation(backend, q)
 prepare_target(::Nothing, q) = prepare_expectation(EA.EADefault(), q)
 prepare_target(::Nothing, q::GaussianMessage) = prepare_expectation(TARGET_GAUSS_HERMITE, q)
+prepare_target(::Nothing, q::UnivariateNormalDistributionsFamily) =
+    prepare_expectation(TARGET_UNCONSTRAINED, Normal(mean(q), std(q)))
 prepare_target(::Nothing, q::ContinuousUnivariateDistribution) =
     prepare_expectation(TARGET_UNCONSTRAINED, q isa GammaDistributionsFamily ? Gamma(shape(q), scale(q)) : q)
 

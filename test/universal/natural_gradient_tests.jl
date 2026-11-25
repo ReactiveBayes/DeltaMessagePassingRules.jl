@@ -39,6 +39,17 @@ end
         @test η ≈ [ξ, -Λ / 2] rtol = 1.0e-10
         @test η ≈ getnaturalparameters(convert(ExponentialFamilyDistribution, NormalWeightedMeanPrecision(ξ, Λ))) rtol = 1.0e-10
     end
+    # a logistic likelihood under broad beliefs, which bends at zero on a scale far below the
+    # belief's: against a fine Riemann sum of its derivatives, ℓ' = σ(-x) and ℓ'' = -σ(x)σ(-x)
+    σ(x) = inv(1 + exp(-x))
+    for (m, v) in ((0.0, 100.0), (0.0, 400.0), (3.0, 20.0))
+        q = NormalMeanVariance(m, v)
+        grid = range(m - 40sqrt(v), m + 40sqrt(v); length = 400_001)
+        weights = pdf.(Normal(m, sqrt(v)), grid) .* step(grid)
+        Λ = sum(weights .* σ.(grid) .* σ.(-grid))
+        ξ = sum(weights .* σ.(-grid)) + Λ * m
+        @test natural_gradient_target(NodeFunctionLogPdf(x -> -log1p(exp(-x))), q, nothing) ≈ [ξ, -Λ / 2] rtol = 1.0e-8
+    end
 
     # two dimensions: `ℓ(x) = aᵀx - exp(bᵀx)`, with ρ = E[exp(bᵀx)], E[∇ℓ] = a - ρb and
     # E[∇²ℓ] = -ρbbᵀ, so Λ⋆ = ρbbᵀ, singular, and ξ⋆ = a - ρb + Λ⋆m
