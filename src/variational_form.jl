@@ -64,13 +64,15 @@ variational_form(form::VariationalForm, density, previous = nothing) = project_f
 function continuous_form(form::VariationalForm, density, parts, previous)
     domain = something(EA.domain(density), EA.RealLine())
     logp = x -> all(part -> insupport(part, x), parts) ? logpdf(density, x) : -Inf
-    x0 = start_point(logp, domain, parts, previous)
+    x0 = form_start(form, logp, domain, parts, previous)
+    isnothing(x0) && return unprojected(density, previous)
     backend = something(form.backend, EA.EADefault())
     result = try
         EA.gaussian_variational(logp, x0, domain; backend, tol = form.tol, maxiters = form.maxiters)
     catch error
-        # a bound that is not finite at the start: no Gaussian to begin from
-        error isa ArgumentError || rethrow()
+        # a bound that is not finite at the start, or a curvature that cannot be solved, as for a
+        # likelihood alone with no mode: no Gaussian to begin from
+        error isa Union{ArgumentError, LinearAlgebra.SingularException, LinearAlgebra.PosDefException} || rethrow()
         nothing
     end
     if isnothing(result) || !result.converged

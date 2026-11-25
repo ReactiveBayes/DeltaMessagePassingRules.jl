@@ -61,7 +61,8 @@ moment_form(form::MomentForm, density, previous = nothing) = project_form(form, 
 function continuous_form(form::MomentForm, density, parts, previous)
     domain = something(EA.domain(density), EA.RealLine())
     logp = x -> all(part -> insupport(part, x), parts) ? logpdf(density, x) : -Inf
-    x0 = start_point(logp, domain, parts, previous)
+    x0 = form_start(form, logp, domain, parts, previous)
+    isnothing(x0) && return unprojected(density, previous)
     result = EA.moment_matching(logp, x0, domain; backend = form.backend, tol = form.tol, maxiters = form.maxiters)
     result.converged || form.nomode === :project || return (; distribution = density, logZ = nothing, mode = previous, converged = false, result.iterations, method = :unprojected)
     return (; distribution = exponential_family_gaussian(result.distribution), result.logZ, mode = result.mean, result.converged, result.iterations, method = :moment_matching)

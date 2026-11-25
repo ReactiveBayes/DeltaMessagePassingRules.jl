@@ -133,9 +133,9 @@ end
 
     form = NaturalGradientForm()
     raw = NodeFunctionLogPdf(x -> 2x - exp(x))
-    # a raw message waits for a cavity; a closed one is its own site
-    waiting = site(form, raw, missing)
-    @test ismissing(waiting.site) && waiting.outcome == (method = :waiting,)
+    # a raw message passes while there is no cavity; a closed one is its own site
+    passed = site(form, raw, missing)
+    @test passed.site === raw && passed.outcome == (method = :waiting,)
     @test site(form, PushforwardMessage(exp, (NormalMeanVariance(0.0, 1.0),)), missing).outcome.method === :waiting
     gaussian = NormalMeanVariance(1.0, 2.0)
     @test site(form, gaussian, missing).site === gaussian
@@ -148,9 +148,10 @@ end
     @test prod(GenericProd(), own.site, GammaShapeRate(-0.5, 0.5)) == GammaShapeRate(0.5, 2.5)
     beta = site(form, Beta(2.0, 3.0), Beta(1.0, 1.0))
     @test beta.site isa ExponentialFamilyDistribution && convert(Distribution, beta.site) == Beta(2.0, 3.0)
-    # against a cavity in no family with sites, a categorical's, or a product, the message passes
+    # against a cavity in no family with sites, a categorical's, the message passes; a product of
+    # raw messages is replaced by its Laplace approximation, a Gaussian, and the step is taken
     @test site(form, raw, Categorical([0.5, 0.5])).outcome.method === :passed
-    @test site(form, raw, ProductOf(NormalMeanVariance(0.0, 1.0), raw)).site === raw
+    @test site(form, raw, ProductOf(NormalMeanVariance(0.0, 1.0), raw)).outcome.method === :natural_gradient
 
     # the first step starts from the flat site: alpha = 1 and beta = 0 jump to the target at the cavity
     cavity = NormalMeanVariance(0.5, 1.0)

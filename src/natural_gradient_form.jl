@@ -340,10 +340,11 @@ univariate family.
   family. A Gamma is converted to a `GammaShapeRate`, and a member of another non-Gaussian family
   to an `ExponentialFamilyDistribution`, so that its products with the sites of the family are
   closed, whether those sites are proper or not.
-- A raw message against a `missing` cavity has no site yet: `site` is `missing` and the outcome is
-  `(; method = :waiting)`.
+- A raw message against a `missing` cavity passes as it is, as under belief propagation, with the
+  outcome `(; method = :waiting)`; it takes a step once a cavity has formed.
 - If the cavity is in no family that has sites, such as a discrete one, the message passes, as
-  under [`LaplaceForm`](@ref).
+  under [`LaplaceForm`](@ref). A cavity that is an unprojected product of raw messages is first
+  replaced by its Laplace approximation where that is a Gaussian on the real line.
 - Any other message takes a damped step. This covers a raw log-density, a
   [`TiltedJointMessage`](@ref), a [`PushforwardMessage`](@ref), and a distribution of another
   family, such as a log-normal towards a Gamma. The step starts from the previous site of the
@@ -366,8 +367,9 @@ function site(form::NaturalGradientForm, message, cavity, previous = nothing)
     closed = is_closed_form(message)
     if ismissing(cavity)
         closed && return (; site = site_representation(message), outcome = (; method = :closed_form))
-        return (; site = missing, outcome = (; method = :waiting))
+        return (; site = message, outcome = (; method = :waiting))
     end
+    cavity = seed_cavity(cavity)
     family = family_parameters(cavity)
     isnothing(family) && return (; site = message, outcome = (; method = :passed))
     if closed
@@ -382,7 +384,8 @@ site(form::NaturalGradientForm, message::PushforwardMessage, cavity, previous = 
 site(form::NaturalGradientForm, message::TiltedJointMessage, cavity, previous = nothing) = natural_gradient_site(form, message, cavity, previous)
 
 function natural_gradient_site(form, message, cavity, previous)
-    ismissing(cavity) && return (; site = missing, outcome = (; method = :waiting))
+    ismissing(cavity) && return (; site = message, outcome = (; method = :waiting))
+    cavity = seed_cavity(cavity)
     family = family_parameters(cavity)
     isnothing(family) && return (; site = message, outcome = (; method = :passed))
     return natural_gradient_step(form, message, family, previous)

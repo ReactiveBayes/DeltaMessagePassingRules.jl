@@ -72,6 +72,31 @@ end
     @test mean(q) ≈ mean(reference.distribution) && var(q) ≈ var(reference.distribution)
 end
 
+@testitem "site: a raw message passes until a cavity forms, and a raw cavity is seeded by Laplace" tags = [:universal] begin
+    using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily
+    using MessagePassingRulesBase: NodeFunctionLogPdf
+    import DeltaMessagePassingRules: LaplaceForm, MomentForm, NaturalGradientForm, site, laplace_form
+    # A count's message towards its log-rate, alone and with another count's
+    raw = NodeFunctionLogPdf(x -> 3x - exp(x))
+    other = NodeFunctionLogPdf(x -> 5x - exp(x))
+    for form in (LaplaceForm(), MomentForm(), NaturalGradientForm())
+        # before any other edge has a site, as under belief propagation
+        passed = site(form, raw, missing)
+        @test passed.site === raw && passed.outcome.method === :waiting
+        # the other edges' raw messages: the cavity is their product, which is replaced by its
+        # Laplace approximation, the same as a Gaussian cavity
+        laplace = laplace_form(LaplaceForm(), ProductOf(other, other)).distribution
+        seeded = site(form, raw, ProductOf(other, other))
+        direct = site(form, raw, laplace)
+        @test seeded.outcome.method === direct.outcome.method !== :passed
+        @test collect(weightedmean_precision(seeded.site)) ≈ collect(weightedmean_precision(direct.site))
+    end
+    # a raw cavity with no mode passes, and so does one on another domain
+    nomode = NodeFunctionLogPdf(x -> x)
+    @test site(LaplaceForm(), raw, nomode).outcome.method === :passed
+    @test site(LaplaceForm(), raw, ProductOf(Gamma(2.0, 1.0), NodeFunctionLogPdf(x -> -x))).outcome.method === :passed
+end
+
 @testitem "site: against an improper cavity, in natural parameters" tags = [:universal] begin
     using DeltaMessagePassingRules, BayesBase, Distributions, ExponentialFamily, LinearAlgebra
     using MessagePassingRulesBase: NodeFunctionLogPdf
@@ -261,10 +286,11 @@ end
         reference = log(sum(z -> exp(logpdf(J.LogPrecisionNormal(μ, z), y) + logpdf(cz, z)), zs) * step(zs))
         @test logpdf(toμ, μ) ≈ reference rtol = 1.0e-3
     end
-    # the same message again is the same, and a site against a missing cavity waits
+    # the same message again is the same, and against a missing cavity it passes as it is
     @test same_message(toμ, message(MomentForm(), Target(:μ), RuleArgs(m = (out = PointMass(y), z = cz))), 1.0e-10)
     @test !same_message(toμ, toz)
-    @test ismissing(site(MomentForm(), toμ, missing).site)
+    passed = site(MomentForm(), toμ, missing)
+    @test passed.site === toμ && passed.outcome.method === :waiting
 end
 
 @testitem "TiltedJointMessage: a deterministic node's pull-back to one of two inputs" tags = [:universal] begin

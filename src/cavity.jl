@@ -19,7 +19,9 @@ projection is that of `form`: a [`LaplaceForm`](@ref) (Laplace propagation) or a
 
 - A closed message, a distribution or a point mass, is its own site.
 - If the cavity is not a Gaussian, the message passes as it is, and the variable's beliefs are
-  projected as products, as without sites.
+  projected as products, as without sites. A cavity that is an unprojected product of raw
+  messages, as before the other edges have sites, is first replaced by its Laplace approximation
+  where that is a Gaussian on the real line.
 - Otherwise `form` projects `x ↦ log message(x) + ξᵀx - xᵀWx/2`, where `(ξ, W)` are the natural
   parameters of the cavity, so an improper cavity is handled too. The projection starts at
   `previous`, the mode of the last site, or else at the mean of the cavity if it has one. The
@@ -27,15 +29,17 @@ projection is that of `form`: a [`LaplaceForm`](@ref) (Laplace propagation) or a
   `(Mv)NormalWeightedMeanPrecision` that may be improper.
 
 `outcome` is `(; method, converged, iterations, logZ, mode)`. `method` is `:closed_form`,
-`:passed`, `:laplace` or `:moment_matching`, and `logZ` is the log of the integral of the tilted
+`:passed`, `:waiting`, `:laplace` or `:moment_matching`, and `logZ` is the log of the integral of the tilted
 density, with the cavity entering as a kernel. While no other edge has a site, the cavity is
-`missing`; a raw message then has no site yet, so `site` is `missing` and the outcome is
-`(; method = :waiting)`.
+`missing`; a raw message then passes as it is, as under belief propagation, and the outcome is
+`(; method = :waiting)`: the site is to be projected again once a cavity has formed.
 """
 function site(form, message, cavity, previous = nothing)
     is_closed_form(message) && return (; site = message, outcome = (; method = :closed_form))
-    # a raw message waits for a cavity, while no other edge of the variable has a site
-    ismissing(cavity) && return (; site = missing, outcome = (; method = :waiting))
+    # while no other edge of the variable has a site, a raw message passes as it is, as under
+    # belief propagation, and waits to be projected once a cavity has formed
+    ismissing(cavity) && return (; site = message, outcome = (; method = :waiting))
+    cavity = seed_cavity(cavity)
     cavity isa GaussianMessage || return (; site = message, outcome = (; method = :passed))
     ξ, W = weightedmean_precision(cavity)
     logp = x -> insupport(message, x) ? logpdf(message, x) + gaussian_logkernel(ξ, W, x) : -Inf
@@ -43,6 +47,22 @@ function site(form, message, cavity, previous = nothing)
     result = cavity_projection(form, logp, x0)
     ξq, Wq = natural_parameters(result.distribution)
     return (; site = weighted_mean_precision(ξq - ξ, Wq - W), outcome = (; result.method, result.converged, result.iterations, result.logZ, result.mode))
+end
+
+# While the raw messages of the other edges pass, before any of them has a site, the cavity is
+# their unprojected product. Its Laplace approximation on the real line stands in for it, so that
+# the first sites form against a Gaussian; after that the cavity is a product of Gaussian sites. A
+# product with no mode, or on another domain, is returned as it is, and the message passes.
+function seed_cavity(cavity)
+    is_closed_form(cavity) && return cavity
+    result = try
+        project_form(LaplaceForm(), cavity, nothing)
+    catch error
+        error isa Union{ArgumentError, DomainError, LinearAlgebra.SingularException, LinearAlgebra.PosDefException} || rethrow()
+        nothing
+    end
+    (isnothing(result) || !result.converged) && return cavity
+    return result.distribution
 end
 
 """
@@ -244,8 +264,9 @@ function BayesBase.logpdf(message::TiltedJointMessage, x)
 end
 
 function site(form, message::TiltedJointMessage, cavity, previous = nothing)
-    # the target's own dimension comes from its cavity: none yet, and the message waits
-    ismissing(cavity) && return (; site = missing, outcome = (; method = :waiting))
+    # the target's own dimension comes from its cavity: none yet, and the message passes
+    ismissing(cavity) && return (; site = message, outcome = (; method = :waiting))
+    cavity = seed_cavity(cavity)
     cavity isa GaussianMessage || return (; site = message, outcome = (; method = :passed))
     ξ, W = weightedmean_precision(cavity)
     free = joint_layout(message)

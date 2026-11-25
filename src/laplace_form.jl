@@ -120,7 +120,8 @@ function continuous_form(form::LaplaceForm, density, parts, previous)
     domain = something(EA.domain(density), EA.RealLine())
     # -Inf outside the support of a factor, so that a Newton step leaving it is shortened
     logp = x -> all(part -> insupport(part, x), parts) ? logpdf(density, x) : -Inf
-    x0 = start_point(logp, domain, parts, previous)
+    x0 = form_start(form, logp, domain, parts, previous)
+    isnothing(x0) && return unprojected(density, previous)
     result = EA.laplace(logp, x0, domain; tol = form.tol, maxiters = form.maxiters)
     result.converged || form.nomode === :project || return (; distribution = density, logZ = nothing, mode = previous, converged = false, result.iterations, method = :unprojected)
     return (; distribution = exponential_family_gaussian(result.distribution), result.logZ, result.mode, result.converged, result.iterations, method = :laplace)
@@ -131,6 +132,21 @@ end
 exponential_family_gaussian(distribution::Normal) = NormalMeanVariance(mean(distribution), var(distribution))
 exponential_family_gaussian(distribution::MvNormal) = MvNormalMeanCovariance(mean(distribution), cov(distribution))
 exponential_family_gaussian(distribution) = distribution
+
+# Where the iterations of `form` start. A form that leaves a product it cannot project as it is
+# (`nomode = :leave`) also leaves one it cannot start on, `nothing` here: a raw message alone,
+# such as one that passes while its variable's sites form, gives no dimension.
+function form_start(form, logp, domain, parts, previous)
+    form.nomode === :leave || return start_point(logp, domain, parts, previous)
+    return try
+        start_point(logp, domain, parts, previous)
+    catch error
+        error isa ArgumentError || rethrow()
+        nothing
+    end
+end
+
+unprojected(density, previous) = (; distribution = density, logZ = nothing, mode = previous, converged = false, iterations = 0, method = :unprojected)
 
 # Where Laplace's iterations start: the previous mode, the mean of a factor, or the middle of the
 # domain, the first of them where the log-density is finite
